@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TSF Scatter Explorer</title>
+    <link rel="icon" type="image/x-icon" href="ScatterPlotReviewAppIcon.ico">
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Plotly -->
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+
+    <!-- Custom Styles -->
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="app-layout">
+        <!-- Top Banner -->
+        <header class="top-banner">
+            <div class="menu-area">
+                <div class="dropdown">
+                    <button class="menu-btn">File ▾</button>
+                    <div class="dropdown-content">
+                        <div id="menu-save" class="menu-item-div">Save Session...</div>
+                        <label for="file-load-session" class="menu-item-label">Load Session...</label>
+                        <input type="file" id="file-load-session" accept=".sct" style="display: none;">
+                    </div>
+                </div>
+            </div>
+            <div class="app-title">
+                <h1>Scatter Plot Reviewer</h1>
+                <img src="ScatterPlotReviewAppIcon.ico" alt="App Icon" class="app-logo">
+            </div>
+        </header>
+
+        <div class="main-body">
+            <!-- Sidebar Controls -->
+            <aside class="sidebar">
+                <div class="control-group">
+                    <div class="group-header">
+                        <h2>Files</h2>
+                    </div>
+
+                    <!-- Raw TSF -->
+                    <div class="file-group">
+                        <label class="input-label" for="file-raw">Raw TSF <span class="indicator raw">●</span></label>
+                        <input type="file" id="file-raw" accept=".tsf" class="file-control">
+                        <div class="toggle-row">
+                            <span class="file-status" id="name-raw">No file selected</span>
+                            <div class="toggle-wrapper">
+                                <input type="checkbox" id="chk-raw" checked>
+                                <label for="chk-raw">Show</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Edited TSF -->
+                    <div class="file-group">
+                        <label class="input-label" for="file-edited">Edited TSF <span
+                                class="indicator edited">●</span></label>
+                        <input type="file" id="file-edited" accept=".tsf" class="file-control">
+                        <div class="toggle-row">
+                            <span class="file-status" id="name-edited">No file selected</span>
+                            <div class="toggle-wrapper">
+                                <input type="checkbox" id="chk-edited" checked>
+                                <label for="chk-edited">Show</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- EVT File -->
+                    <div class="file-group">
+                        <label class="input-label" for="file-evt">Events File</label>
+                        <input type="file" id="file-evt" accept=".evt" class="file-control">
+                        <div class="toggle-row">
+                            <span class="file-status" id="name-evt">No file selected</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <div class="group-header">
+                        <h2>Filters & View</h2>
+                    </div>
+
+                    <div class="input-row">
+                        <label for="select-event">Event</label>
+                        <select id="select-event">
+                            <option value="-1">Custom Range</option>
+                        </select>
+                    </div>
+
+                    <div class="input-row">
+                        <label for="dt-start">Start</label>
+                        <input type="datetime-local" id="dt-start" step="1">
+                    </div>
+
+                    <div class="input-row">
+                        <label for="dt-end">End</label>
+                        <input type="datetime-local" id="dt-end" step="1">
+                    </div>
+
+                    <button id="btn-reset" class="btn-primary">Reset Zoom</button>
+                </div>
+            </aside>
+
+            <!-- Main Content -->
+            <main class="main-content">
+                <div class="plot-container">
+                    <div id="plot-area"></div>
+                    <button id="btn-copy-graph" class="btn-icon" title="Copy Graph to Clipboard">
+                        <!-- SVG Icon for Copy -->
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                    </button>
+                </div>
+            </main>
+        </div>
+
+        <!-- TSF Column Selection Modal -->
+        <div id="column-mapping-modal" class="modal-overlay hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Select Columns</h2>
+                    <p id="modal-file-name" class="modal-subtitle">filename.tsf</p>
+                </div>
+
+                <div class="modal-body">
+                    <p class="modal-desc">Please map the columns from the file to the required metrics.</p>
+
+                    <div class="column-selectors">
+                        <div class="selector-group">
+                            <label for="col-time">Date/Time</label>
+                            <select id="col-time"></select>
+                            <!-- Date usually doesn't need unit inputs but consistency is fine -->
+                        </div>
+                        <div class="selector-group">
+                            <label for="col-level">Depth/Level</label>
+                            <select id="col-level"></select>
+                            <input type="text" id="unit-level" placeholder="Unit" class="unit-input">
+                        </div>
+                        <div class="selector-group">
+                            <label for="col-velocity">Velocity</label>
+                            <select id="col-velocity"></select>
+                            <input type="text" id="unit-velocity" placeholder="Unit" class="unit-input">
+                        </div>
+                    </div>
+
+                    <div class="data-preview">
+                        <h3>Preview (First 5 rows)</h3>
+                        <div class="table-wrapper">
+                            <table id="preview-table">
+                                <!-- Populated by JS -->
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button id="btn-cancel-col" class="btn-secondary">Cancel</button>
+                    <button id="btn-confirm-col" class="btn-primary">Confirm</button>
+                </div>
+            </div>
+        </div>
+
+        <script src="app.js"></script>
+</body>
+
+</html>
