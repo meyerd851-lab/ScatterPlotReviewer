@@ -17,7 +17,7 @@ A web-based tool for visualizing and reviewing hydraulic modeling data, specific
 ## Getting Started
 
 ### Hosted Application
-Access the tool directly via your web browser: [Insert GitHub Pages Link Here]
+Access the tool directly via your web browser: https://meyerd851-lab.github.io/ScatterPlotReviewer/
 
 ### Local Development
 1. **Clone the repository**:
@@ -60,3 +60,4 @@ Expects a text file defining events, typically in an INI-like structure with `[E
 
 ---
 *Built with HTML, CSS, Vanilla JavaScript, and Plotly.js.*
+
