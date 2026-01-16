@@ -74,7 +74,7 @@ function loadTSF(file, type) {
             const rawLines = text.split(/\r?\n/);
             if (rawLines.length < 3) throw new Error("File too short");
 
-            const headerLine = rawLines[1];
+            const headerLine = rawLines[0]; // User requested 1st row for headers
             const headers = headerLine.split('\t');
 
             // Auto-detect columns
