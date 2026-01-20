@@ -740,6 +740,7 @@ function updatePlot() {
         hovermode: 'closest',
         plot_bgcolor: '#ffffff',
         paper_bgcolor: '#ffffff',
+        uirevision: 'true', // Keep zoom/pan state when updating data
     };
 
     // Preserving zoom is tricky if we completely redraw?
