@@ -42,6 +42,11 @@
         <div class="main-body">
             <!-- Sidebar Controls -->
             <aside class="sidebar">
+                <div id="session-info" class="session-label"
+                    style="margin-bottom: 1rem; color: var(--accent-color); font-weight: 600; font-size: 0.85rem;">
+                    Session: <span id="session-name"
+                        style="color: var(--text-primary); font-weight: 400;">Unsaved</span>
+                </div>
                 <div class="control-group">
                     <div class="group-header">
                         <h2>Files</h2>
@@ -81,6 +86,35 @@
                         <div class="toggle-row">
                             <span class="file-status" id="name-evt">No file selected</span>
                         </div>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <div class="group-header">
+                        <h2>Manning's Curve</h2>
+                    </div>
+                    <div class="file-group">
+                        <div class="input-row">
+                            <label for="inp-diameter">Pipe Diameter (ft)</label>
+                            <input type="number" id="inp-diameter" step="0.01" placeholder="e.g. 2.0">
+                        </div>
+                        <div class="input-row" style="margin-top: 5px;">
+                            <label for="inp-slope">Slope (ft/ft)</label>
+                            <input type="number" id="inp-slope" step="0.0001" placeholder="e.g. 0.01">
+                        </div>
+                        <div class="input-row" style="margin-top: 5px;">
+                            <label for="inp-mannings">Manning's n</label>
+                            <input type="number" id="inp-mannings" step="0.001" placeholder="e.g. 0.013">
+                        </div>
+                        <div class="toggle-row">
+                            <span class="file-status" id="mannings-status">Not plotted</span>
+                            <div class="toggle-wrapper">
+                                <input type="checkbox" id="chk-mannings">
+                                <label for="chk-mannings">Show</label>
+                            </div>
+                        </div>
+                        <button id="btn-update-curve" class="btn-primary" style="margin-top: 10px; width: 100%;">Update
+                            Curve</button>
                     </div>
                 </div>
 

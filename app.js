@@ -7,6 +7,7 @@ const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 const state = {
     raw: { data: [], units: {}, name: null, visible: true },
     edited: { data: [], units: {}, name: null, visible: true },
+    mannings: { data: [], visible: false, params: { diameter: null, slope: null, n: null } },
     events: [],
     currentRange: { start: null, end: null }
 };
@@ -27,7 +28,16 @@ const dom = {
     btnReset: document.getElementById('btn-reset'),
     plot: document.getElementById('plot-area'),
     menuSave: document.getElementById('menu-save'),
-    fileLoadSession: document.getElementById('file-load-session')
+    fileLoadSession: document.getElementById('file-load-session'),
+    // Mannings
+    inpDiameter: document.getElementById('inp-diameter'),
+    inpSlope: document.getElementById('inp-slope'),
+    inpMannings: document.getElementById('inp-mannings'),
+    chkMannings: document.getElementById('chk-mannings'),
+    btnUpdateCurve: document.getElementById('btn-update-curve'),
+    manningsStatus: document.getElementById('mannings-status'),
+    // Session Label
+    lblSession: document.getElementById('session-name')
 };
 
 // --- Initialization ---
@@ -55,7 +65,15 @@ function init() {
 
     // Session Listeners
     dom.menuSave.addEventListener('click', saveSession);
+    dom.menuSave.addEventListener('click', saveSession);
     dom.fileLoadSession.addEventListener('change', loadSession);
+
+    // Mannings Listeners
+    dom.btnUpdateCurve.addEventListener('click', updateManningsCurve);
+    dom.chkMannings.addEventListener('change', (e) => {
+        state.mannings.visible = e.target.checked;
+        updatePlot();
+    });
 
     // Initial Plot
     renderEmptyPlot();
@@ -393,6 +411,76 @@ function excelDateToJS(serial) {
     return d;
 }
 
+// --- Manning's Calculation ---
+
+function updateManningsCurve() {
+    const D = parseFloat(dom.inpDiameter.value);
+    const S = parseFloat(dom.inpSlope.value);
+    const n = parseFloat(dom.inpMannings.value);
+
+    if (isNaN(D) || isNaN(S) || isNaN(n) || D <= 0 || S <= 0 || n <= 0) {
+        alert("Please enter valid positive numbers for Diameter, Slope, and Manning's n.");
+        return;
+    }
+
+    state.mannings.params = { diameter: D, slope: S, n: n };
+    state.mannings.data = calculateManningsData(D, S, n);
+
+    // Auto-enable visibility
+    state.mannings.visible = true;
+    dom.chkMannings.checked = true;
+    dom.manningsStatus.textContent = "Calculated";
+    dom.manningsStatus.style.color = "#10b981";
+
+    updatePlot();
+}
+
+function calculateManningsData(D, S, n) {
+    // English Units: V = (1.486 / n) * R^(2/3) * S^(1/2)
+    // R = A / P
+
+    // Sweep depth from 0 to D
+    const points = [];
+    const steps = 50;
+    const r = D / 2.0;
+    const k = 1.486;
+    const sqrtS = Math.sqrt(S);
+
+    for (let i = 0; i <= steps; i++) {
+        const d = (i / steps) * D; // Current depth
+
+        let A, P, R, V;
+
+        if (i === 0) {
+            points.push({ d: 0, v: 0 });
+            continue;
+        } else if (i === steps) {
+            // Full pipe
+            A = Math.PI * r * r;
+            P = 2 * Math.PI * r;
+        } else {
+            // Partial flow
+            // Theta is angle subtended by water surface at center
+            // d = r(1 - cos(theta/2))
+            // cos(theta/2) = 1 - d/r = (r - d)/r
+            // theta/2 = acos((r-d)/r)
+            const term = (r - d) / r;
+            // Clamp term to [-1, 1] just in case
+            const theta = 2.0 * Math.acos(Math.max(-1, Math.min(1, term)));
+
+            A = (r * r / 2.0) * (theta - Math.sin(theta));
+            P = r * theta;
+        }
+
+        R = A / P;
+        V = (k / n) * Math.pow(R, 2 / 3) * sqrtS;
+
+        points.push({ d: d, v: V });
+    }
+
+    return points;
+}
+
 // --- UI Logic ---
 
 function populateEventDropdown() {
@@ -470,6 +558,7 @@ async function saveSession(e) {
         state: {
             raw: state.raw,
             edited: state.edited,
+            mannings: state.mannings, // Save Mannings
             events: state.events
         },
         view: getRange()
@@ -492,6 +581,9 @@ async function saveSession(e) {
             await writable.write(jsonStr);
             await writable.close();
             console.log("File saved via Picker");
+
+            // Update Label
+            dom.lblSession.textContent = handle.name;
             return; // Success
         } catch (err) {
             if (err.name === 'AbortError') return; // User cancelled
@@ -546,6 +638,22 @@ function loadSession(e) {
                     start: new Date(ev.start),
                     end: new Date(ev.end)
                 }));
+
+                // Restore Mannings
+                if (session.state.mannings) {
+                    state.mannings = session.state.mannings;
+                    // Restore Inputs
+                    if (state.mannings.params) {
+                        dom.inpDiameter.value = state.mannings.params.diameter || '';
+                        dom.inpSlope.value = state.mannings.params.slope || '';
+                        dom.inpMannings.value = state.mannings.params.n || '';
+                    }
+                    if (state.mannings.visible) {
+                        dom.chkMannings.checked = true;
+                        dom.manningsStatus.textContent = "Loaded from Session";
+                        dom.manningsStatus.style.color = "#10b981";
+                    }
+                }
             }
 
             // Restore UI Labels
@@ -574,6 +682,9 @@ function loadSession(e) {
 
         // Reset input so same file can be loaded again
         dom.fileLoadSession.value = '';
+
+        // Update Label
+        dom.lblSession.textContent = file.name;
     };
     reader.readAsText(file);
 }
@@ -696,10 +807,40 @@ function updatePlot() {
         });
     }
 
-    // Layout Updates
-    // Update axis labels based on units
+    // Determine units early
     let dUnit = state.raw.units.level || state.edited.units.level || '?';
     let vUnit = state.raw.units.velocity || state.edited.units.velocity || '?';
+
+    // Add Manning's Curve Trace
+    if (state.mannings.visible && state.mannings.data.length > 0) {
+        const mData = state.mannings.data;
+
+        // Check if Depth is in Inches
+        const isInches = dUnit.toLowerCase().startsWith('in');
+        const depthMult = isInches ? 12.0 : 1.0;
+        const depthLabel = isInches ? 'in' : 'ft';
+
+        traces.push({
+            x: mData.map(pt => pt.v),
+            y: mData.map(pt => pt.d * depthMult),
+            mode: 'lines',
+            type: 'scattergl',
+            name: 'Manning Theoretical',
+            line: {
+                color: '#10b981', // Emerald 500
+                width: 3,
+            },
+            hovertemplate:
+                '<b>Manning Theoretical</b><br>' +
+                `Depth: %{y:.2f} ${depthLabel}<br>` +
+                'Velocity: %{x:.2f} fps<br>' +
+                '<extra></extra>'
+        });
+    }
+
+    // Layout Updates
+
+    // Determine Plot Title
 
     // Determine Plot Title
     let plotTitle = 'Scatter Plot';
