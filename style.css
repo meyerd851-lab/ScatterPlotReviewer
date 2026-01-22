@@ -305,17 +305,95 @@ input[type="datetime-local"]:focus {
     width: 100%;
     height: 100%;
     flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
 }
 
-#plot-area {
+/* Plot Container Wrapper */
+.plot-container-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    min-height: 0;
+    /* Crucial for nested flex scrolling/sizing */
+}
+
+.plot-item {
+    background-color: var(--bg-card);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--border-color);
+    position: relative;
+    /* Plotly needs explicit dimensions or flex grow to fill */
+    flex: 1;
+    min-height: 0;
     width: 100%;
-    height: 100%;
+    overflow: hidden;
 }
 
+/* View Modes */
+.view-mode-scatter #timeseries-plot {
+    display: none !important;
+}
+
+.view-mode-graph #scatter-plot {
+    display: none !important;
+}
+
+.view-mode-both .plot-item {
+    flex: 0 0 48%;
+    /* Slightly less than 50% to account for gap */
+}
+
+/* Controls */
+.view-controls {
+    background-color: var(--bg-card);
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--border-color);
+    display: flex;
+    gap: 2rem;
+    align-items: center;
+}
+
+.control-group-inline {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.control-group-inline label {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+/* Radio Group Spacing */
+.radio-group {
+    display: flex;
+    gap: 1.5rem;
+    /* Gap between option groups */
+    align-items: center;
+}
+
+.radio-option {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    /* Gap between circle and label */
+}
+
+.radio-group input {
+    margin: 0;
+    cursor: pointer;
+}
+
+/* Copy Button - Relative Positioning in Action Bar */
 .btn-icon {
-    position: absolute;
-    top: 50px;
-    right: 10px;
+    /* Removed absolute positioning */
     background: rgba(255, 255, 255, 0.9);
     border: 1px solid #cbd5e1;
     color: #64748b;
@@ -327,7 +405,7 @@ input[type="datetime-local"]:focus {
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 10;
+    /* z-index: 10; Not needed for static */
 }
 
 .btn-icon:hover {
@@ -360,15 +438,19 @@ input[type="datetime-local"]:focus {
     display: none;
 }
 
+
 .modal-content {
     background: #ffffff;
     border-radius: 12px;
-    width: 90%;
-    max-width: 900px;
+    width: 95%;
+    /* Increased from 90% */
+    max-width: 1100px;
+    /* Increased from 900px */
     box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
     display: flex;
     flex-direction: column;
-    max-height: 85vh;
+    max-height: 90vh;
+    /* Increased height */
     overflow-y: auto;
     font-family: 'Inter', sans-serif;
 }

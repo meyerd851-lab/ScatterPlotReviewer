@@ -92,6 +92,7 @@
                 <div class="control-group">
                     <div class="group-header">
                         <h2>Manning's Curve</h2>
+                        <h2>(Circular Only)</h2>
                     </div>
                     <div class="file-group">
                         <div class="input-row">
@@ -146,8 +147,40 @@
 
             <!-- Main Content -->
             <main class="main-content">
-                <div class="plot-container">
-                    <div id="plot-area"></div>
+                <div class="view-controls" style="margin-bottom: 1rem; display: flex; gap: 1rem; align-items: center;">
+                    <div class="control-group-inline">
+                        <label>View:</label>
+                        <div class="radio-group">
+                            <div class="radio-option">
+                                <input type="radio" id="view-scatter" name="view-mode" value="scatter" checked>
+                                <label for="view-scatter">Scatter</label>
+                            </div>
+                            <div class="radio-option">
+                                <input type="radio" id="view-graph" name="view-mode" value="graph">
+                                <label for="view-graph">Time Series</label>
+                            </div>
+                            <div class="radio-option">
+                                <input type="radio" id="view-both" name="view-mode" value="both">
+                                <label for="view-both">Split View</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="control-group-inline" id="metric-control" style="display: none;">
+                        <label for="select-metric">Graph Metric:</label>
+                        <select id="select-metric">
+                            <option value="level">Level</option>
+                            <option value="velocity">Velocity</option>
+                            <option value="flow">Flow</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="plot-container-wrapper">
+                    <div id="scatter-plot" class="plot-item"></div>
+                    <div id="timeseries-plot" class="plot-item"></div>
+                </div>
+
+                <div class="action-bar" style="display: flex; justify-content: flex-end; margin-top: 0.5rem;">
                     <button id="btn-copy-graph" class="btn-icon" title="Copy Graph to Clipboard">
                         <!-- SVG Icon for Copy -->
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -186,6 +219,11 @@
                             <label for="col-velocity">Velocity</label>
                             <select id="col-velocity"></select>
                             <input type="text" id="unit-velocity" placeholder="Unit" class="unit-input">
+                        </div>
+                        <div class="selector-group">
+                            <label for="col-flow">Flow</label>
+                            <select id="col-flow"></select>
+                            <input type="text" id="unit-flow" placeholder="Unit" class="unit-input">
                         </div>
                     </div>
 

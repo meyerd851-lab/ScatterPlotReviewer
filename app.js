@@ -9,7 +9,8 @@ const state = {
     edited: { data: [], units: {}, name: null, visible: true },
     mannings: { data: [], visible: false, params: { diameter: null, slope: null, n: null } },
     events: [],
-    currentRange: { start: null, end: null }
+    currentRange: { start: null, end: null },
+    view: { mode: 'scatter', metric: 'level' } // metrics: level, velocity, flow
 };
 
 // --- DOM Elements ---
@@ -37,7 +38,16 @@ const dom = {
     btnUpdateCurve: document.getElementById('btn-update-curve'),
     manningsStatus: document.getElementById('mannings-status'),
     // Session Label
-    lblSession: document.getElementById('session-name')
+    lblSession: document.getElementById('session-name'),
+    // View Controls
+    radioViewScatter: document.getElementById('view-scatter'),
+    radioViewGraph: document.getElementById('view-graph'),
+    radioViewBoth: document.getElementById('view-both'),
+    selectMetric: document.getElementById('select-metric'),
+    metricControl: document.getElementById('metric-control'),
+    // Plot Containers
+    scatterPlot: document.getElementById('scatter-plot'),
+    timeSeriesPlot: document.getElementById('timeseries-plot')
 };
 
 // --- Initialization ---
@@ -50,11 +60,11 @@ function init() {
     // Toggle Listeners
     dom.chkRaw.addEventListener('change', (e) => {
         state.raw.visible = e.target.checked;
-        updatePlot();
+        updatePlots();
     });
     dom.chkEdited.addEventListener('change', (e) => {
         state.edited.visible = e.target.checked;
-        updatePlot();
+        updatePlots();
     });
 
     // Filter Listeners
@@ -72,11 +82,28 @@ function init() {
     dom.btnUpdateCurve.addEventListener('click', updateManningsCurve);
     dom.chkMannings.addEventListener('change', (e) => {
         state.mannings.visible = e.target.checked;
-        updatePlot();
+        updatePlots();
     });
 
     // Initial Plot
-    renderEmptyPlot();
+    renderEmptyPlots();
+
+    // View Control Listeners
+    const handleViewChange = () => {
+        const mode = document.querySelector('input[name="view-mode"]:checked').value;
+        setViewMode(mode);
+    };
+    [dom.radioViewScatter, dom.radioViewGraph, dom.radioViewBoth].forEach(r => {
+        r.addEventListener('change', handleViewChange);
+    });
+
+    dom.selectMetric.addEventListener('change', (e) => {
+        state.view.metric = e.target.value;
+        updatePlots();
+    });
+
+    // Ensure initial view is set correctly
+    setViewMode('scatter');
 }
 
 // --- File Parsing ---
@@ -96,13 +123,14 @@ function loadTSF(file, type) {
             const headers = headerLine.split('\t');
 
             // Auto-detect columns
-            let timeIdx = -1, levelIdx = -1, velIdx = -1;
+            let timeIdx = -1, levelIdx = -1, velIdx = -1, flowIdx = -1;
             headers.forEach((h, i) => {
                 if (!h) return;
                 const lower = h.toLowerCase();
                 if (lower.includes('date') || lower.includes('time')) timeIdx = i;
                 else if (lower.includes('level') || lower.includes('depth')) levelIdx = i;
                 else if (lower.includes('velocity')) velIdx = i;
+                else if (lower.includes('flow')) flowIdx = i;
             });
 
             // Extract potential units from 3rd row (index 2)
@@ -112,7 +140,7 @@ function loadTSF(file, type) {
             // Filter empty lines for preview
             const sampleData = rawLines.slice(3, 8).filter(l => l.trim().length > 0).map(line => line.split('\t'));
 
-            showColumnSelectionModal(file.name, headers, potentialUnits, sampleData, { timeIdx, levelIdx, velIdx }, (result) => {
+            showColumnSelectionModal(file.name, headers, potentialUnits, sampleData, { timeIdx, levelIdx, velIdx, flowIdx }, (result) => {
                 try {
                     const parsed = parseTSFContent(text, result.indices, result.units);
                     state[type].data = parsed.data;
@@ -124,7 +152,7 @@ function loadTSF(file, type) {
                     else dom.lblEdited.textContent = file.name;
 
                     initRanges();
-                    updatePlot();
+                    updatePlots();
                     resetView();
                 } catch (err) {
                     alert(`Error parsing file with selected columns: ${err.message}`);
@@ -145,8 +173,10 @@ const modalFileName = document.getElementById('modal-file-name');
 const selTime = document.getElementById('col-time');
 const selLevel = document.getElementById('col-level');
 const selVel = document.getElementById('col-velocity');
+const selFlow = document.getElementById('col-flow');
 const unitLevel = document.getElementById('unit-level');
 const unitVel = document.getElementById('unit-velocity');
+const unitFlow = document.getElementById('unit-flow');
 
 const previewTable = document.getElementById('preview-table');
 const btnConfirm = document.getElementById('btn-confirm-col');
@@ -158,9 +188,10 @@ function showColumnSelectionModal(filename, headers, potentialUnits, sampleData,
     modalFileName.textContent = filename;
 
     // Reset Selects
-    [selTime, selLevel, selVel].forEach(sel => sel.innerHTML = '');
+    [selTime, selLevel, selVel, selFlow].forEach(sel => sel.innerHTML = '');
     unitLevel.value = '';
     unitVel.value = '';
+    unitFlow.value = '';
 
     // Populate Selects
     headers.forEach((h, i) => {
@@ -173,6 +204,7 @@ function showColumnSelectionModal(filename, headers, potentialUnits, sampleData,
         selTime.appendChild(createOpt());
         selLevel.appendChild(createOpt());
         selVel.appendChild(createOpt());
+        selFlow.appendChild(createOpt());
     });
 
     // Helper to update unit input based on selection
@@ -184,6 +216,11 @@ function showColumnSelectionModal(filename, headers, potentialUnits, sampleData,
             inputElem.value = '';
         }
     };
+
+    // Bind change events to update units
+    selLevel.onchange = () => updateUnit(selLevel, unitLevel);
+    selVel.onchange = () => updateUnit(selVel, unitVel);
+    selFlow.onchange = () => updateUnit(selFlow, unitFlow);
 
     // Set Defaults if valid
     if (defaultIndices.timeIdx !== -1) selTime.value = defaultIndices.timeIdx;
@@ -198,9 +235,10 @@ function showColumnSelectionModal(filename, headers, potentialUnits, sampleData,
         updateUnit(selVel, unitVel);
     }
 
-    // Bind change events to update units
-    selLevel.onchange = () => updateUnit(selLevel, unitLevel);
-    selVel.onchange = () => updateUnit(selVel, unitVel);
+    if (defaultIndices.flowIdx !== -1) {
+        selFlow.value = defaultIndices.flowIdx;
+        updateUnit(selFlow, unitFlow);
+    }
 
 
     // Render Preview
@@ -232,11 +270,13 @@ function showColumnSelectionModal(filename, headers, potentialUnits, sampleData,
             indices: {
                 timeIdx: parseInt(selTime.value),
                 levelIdx: parseInt(selLevel.value),
-                velIdx: parseInt(selVel.value)
+                velIdx: parseInt(selVel.value),
+                flowIdx: parseInt(selFlow.value)
             },
             units: {
                 level: unitLevel.value,
-                velocity: unitVel.value
+                velocity: unitVel.value,
+                flow: unitFlow.value
             }
         });
     };
@@ -253,6 +293,7 @@ function showColumnSelectionModal(filename, headers, potentialUnits, sampleData,
         btnCancel.removeEventListener('click', handleCancel);
         selLevel.onchange = null;
         selVel.onchange = null;
+        selFlow.onchange = null;
         currentResolve = null;
     };
 
@@ -285,7 +326,7 @@ function parseTSFContent(text, indices, explicitUnits) {
     // const unitLine = lines[headerLineIdx + 1];
     // const units = unitLine ? unitLine.split('\t') : [];
 
-    const { timeIdx, levelIdx, velIdx } = indices;
+    const { timeIdx, levelIdx, velIdx, flowIdx } = indices;
 
     const data = [];
 
@@ -295,18 +336,18 @@ function parseTSFContent(text, indices, explicitUnits) {
         if (!line) continue;
 
         const parts = line.split('\t');
-        if (parts.length <= Math.max(timeIdx, levelIdx, velIdx)) continue;
-
         const tStr = parts[timeIdx];
         const lStr = parts[levelIdx];
         const vStr = parts[velIdx];
+        const fStr = parts[flowIdx];
 
         const t = new Date(tStr);
         const l = parseFloat(lStr);
         const v = parseFloat(vStr);
+        const f = parseFloat(fStr); // May be NaN if flow not mapped
 
         if (!isNaN(t.getTime()) && !isNaN(l) && !isNaN(v)) {
-            data.push({ t, l, v });
+            data.push({ t, l, v, f: isNaN(f) ? null : f });
         }
     }
 
@@ -314,7 +355,8 @@ function parseTSFContent(text, indices, explicitUnits) {
         data,
         units: {
             level: explicitUnits.level,
-            velocity: explicitUnits.velocity
+            velocity: explicitUnits.velocity,
+            flow: explicitUnits.flow
         }
     };
 }
@@ -432,7 +474,10 @@ function updateManningsCurve() {
     dom.manningsStatus.textContent = "Calculated";
     dom.manningsStatus.style.color = "#10b981";
 
-    updatePlot();
+    dom.manningsStatus.textContent = "Calculated";
+    dom.manningsStatus.style.color = "#10b981";
+
+    updatePlots();
 }
 
 function calculateManningsData(D, S, n) {
@@ -524,7 +569,7 @@ function onEventChange() {
     } else {
         const evt = state.events[idx];
         setDateTimeInputs(evt.start, evt.end);
-        updatePlot();
+        updatePlots();
     }
 }
 
@@ -532,7 +577,7 @@ function onDateChange() {
     // Switch to custom if specific date changed?
     // User might want to tweak an event range.
     dom.selectEvent.value = -1;
-    updatePlot();
+    updatePlots();
 }
 
 function setDateTimeInputs(start, end) {
@@ -673,7 +718,21 @@ function loadSession(e) {
                 initRanges();
             }
 
-            updatePlot();
+            // Restore View Mode
+            if (session.state.view) {
+                // Ensure defaults if missing (backward compat)
+                state.view.mode = session.state.view.mode || 'scatter';
+                state.view.metric = session.state.view.metric || 'level';
+
+                // Update UI Controls
+                const rad = document.querySelector(`input[name="view-mode"][value="${state.view.mode}"]`);
+                if (rad) rad.checked = true;
+                dom.selectMetric.value = state.view.metric;
+
+                setViewMode(state.view.mode);
+            }
+
+            updatePlots();
 
         } catch (err) {
             alert("Failed to load session: " + err.message);
@@ -702,19 +761,41 @@ function restoreData(section) {
 
 // --- Plotting ---
 
-function renderEmptyPlot() {
-    Plotly.newPlot(dom.plot, [], {
+function renderEmptyPlots() {
+    const layoutBase = {
+        font: { family: 'Inter, sans-serif' },
+        margin: { t: 40, r: 20, b: 40, l: 50 },
+        autosize: true,
+        plot_bgcolor: '#ffffff',
+        paper_bgcolor: '#ffffff'
+    };
+
+    Plotly.newPlot(dom.scatterPlot, [], {
+        ...layoutBase,
         title: 'Scatter Plot',
         xaxis: { title: 'Velocity' },
-        yaxis: { title: 'Depth' },
-        margin: { t: 40, r: 20, b: 40, l: 50 },
-        autosize: true
+        yaxis: { title: 'Depth' }
+    }, { responsive: true });
+
+    Plotly.newPlot(dom.timeSeriesPlot, [], {
+        ...layoutBase,
+        title: 'Time Series',
+        xaxis: { title: 'Time' },
+        yaxis: { title: 'Value' }
     }, { responsive: true });
 }
 
-function updatePlot() {
+function updatePlots() {
+    updateScatterPlot();
+    updateTimeSeriesPlot();
+}
+
+function updateScatterPlot() {
     const range = getRange();
     if (!range.start || !range.end) return;
+
+    // Only update if visible
+    if (state.view.mode === 'graph') return;
 
     const start = range.start.getTime();
     const end = range.end.getTime();
@@ -742,13 +823,16 @@ function updatePlot() {
 
         const fgX = [];
         const fgY = [];
+        // Custom Data: [TimeStr, IndexInOriginalArray]
+        const fgCustom = [];
 
-        ds.data.forEach(pt => {
+        ds.data.forEach((pt, i) => {
             const t = pt.t.getTime();
             if (t >= start && t <= end) {
                 if (ds.show) {
                     fgX.push(pt.v);
                     fgY.push(pt.l);
+                    fgCustom.push([formatDateTime(pt.t), t]); // Push timestamp for linking
                 } else {
                     bgX.push(pt.v);
                     bgY.push(pt.l); // "inside points if toggle is OFF" -> BG
@@ -760,18 +844,6 @@ function updatePlot() {
         });
 
         if (fgX.length > 0 && ds.show) {
-            // Prepare custom data for hover
-            // We need to match the indices of fgX
-            const fgT = [];
-            ds.data.forEach(pt => {
-                const t = pt.t.getTime();
-                if (t >= start && t <= end) {
-                    if (ds.show) {
-                        fgT.push(formatDateTime(pt.t));
-                    }
-                }
-            });
-
             traces.push({
                 x: fgX,
                 y: fgY,
@@ -784,9 +856,9 @@ function updatePlot() {
                     opacity: 0.8,
                     line: { color: 'black', width: 1 } // Added outline
                 },
-                customdata: fgT,
+                customdata: fgCustom,
                 hovertemplate:
-                    '<b>%{customdata}</b><br>' +
+                    '<b>%{customdata[0]}</b><br>' +
                     'Depth: %{y}<br>' +
                     'Velocity: %{x}<br>' +
                     '<extra></extra>' // Hides the trace name in the popup
@@ -838,9 +910,22 @@ function updatePlot() {
         });
     }
 
-    // Layout Updates
-
-    // Determine Plot Title
+    // Add Highlight Trace (Empty initially)
+    traces.push({
+        x: [],
+        y: [],
+        mode: 'markers',
+        type: 'scattergl',
+        name: 'Highlight',
+        showlegend: false,
+        marker: {
+            symbol: 'circle-open',
+            size: 15,
+            color: '#000000',
+            line: { width: 3 }
+        },
+        hoverinfo: 'skip'
+    });
 
     // Determine Plot Title
     let plotTitle = 'Scatter Plot';
@@ -875,7 +960,7 @@ function updatePlot() {
         xaxis: { title: `Velocity (${vUnit})`, zeroline: true },
         yaxis: { title: `Depth (${dUnit})`, zeroline: true },
         font: { family: 'Inter, sans-serif' },
-        margin: { t: 80, r: 20, b: 50, l: 60 }, // Increased top margin
+        margin: { t: 60, r: 20, b: 60, l: 60 }, // Increased bottom margin
         showlegend: true,
         legend: { x: 0, y: 1 },
         hovermode: 'closest',
@@ -884,18 +969,203 @@ function updatePlot() {
         uirevision: 'true', // Keep zoom/pan state when updating data
     };
 
-    // Preserving zoom is tricky if we completely redraw?
-    // Plotly.react is better than newPlot for updates
-    Plotly.react(dom.plot, traces, layout, { responsive: true });
+    Plotly.react(dom.scatterPlot, traces, layout, { responsive: true }).then(() => {
+        // Attach hover events
+        dom.scatterPlot.on('plotly_hover', (data) => {
+            const pt = data.points[0];
+            // If it's a data point (has customdata with time)
+            if (pt.customdata && pt.customdata[1]) {
+                highlightTime(pt.customdata[1]);
+            }
+        });
+        dom.scatterPlot.on('plotly_unhover', () => {
+            // Clear highlight? Maybe not needed if we want persistence, but for now let's leave it.
+            // Actually, clearing the highlight on graph might be nice.
+            Plotly.relayout(dom.timeSeriesPlot, { 'shapes': [] });
+        });
+    });
+}
+
+function updateTimeSeriesPlot() {
+    // Only update if visible
+    if (state.view.mode === 'scatter') return;
+
+    const range = getRange();
+    if (!range.start || !range.end) return;
+
+    const metric = state.view.metric; // level, velocity, flow
+
+    const datasets = [
+        { type: 'raw', data: state.raw.data, color: 'red', show: state.raw.visible },
+        { type: 'edited', data: state.edited.data, color: 'blue', show: state.edited.visible }
+    ];
+
+    const traces = [];
+
+    // Helper to get val
+    const getVal = (pt) => {
+        if (metric === 'level') return pt.l;
+        if (metric === 'velocity') return pt.v;
+        if (metric === 'flow') return pt.f;
+        return null;
+    };
+
+    datasets.forEach(ds => {
+        if (!ds.show || ds.data.length === 0) return;
+
+        const x = [];
+        const y = [];
+        const custom = [];
+
+        ds.data.forEach(pt => {
+            const val = getVal(pt);
+            if (val !== null && val !== undefined) {
+                x.push(pt.t);
+                y.push(val);
+                custom.push([formatDateTime(pt.t), pt.v, pt.l]); // [Str, Vel, Dep]
+            }
+        });
+
+        traces.push({
+            x: x,
+            y: y,
+            mode: 'lines', // Lines for time series
+            type: 'scattergl',
+            name: ds.type === 'raw' ? 'Raw' : 'Edited',
+            line: { color: ds.color, width: 2 },
+            customdata: custom,
+            hovertemplate:
+                `<b>%{x}</b><br>` +
+                `${metric.charAt(0).toUpperCase() + metric.slice(1)}: %{y:.2f}<br>` +
+                '<extra></extra>'
+        });
+    });
+
+    let yTitle = 'Value';
+    if (metric === 'level') yTitle = `Depth (${state.raw.units.level || ''})`;
+    else if (metric === 'velocity') yTitle = `Velocity (${state.raw.units.velocity || ''})`;
+    else if (metric === 'flow') yTitle = `Flow (${state.raw.units.flow || ''})`;
+
+    const layout = {
+        title: `Time Series - ${metric.charAt(0).toUpperCase() + metric.slice(1)}`,
+        xaxis: {
+            title: 'Time',
+            range: [range.start, range.end], // Sync zoom with main range
+            type: 'date'
+        },
+        yaxis: { title: yTitle },
+        font: { family: 'Inter, sans-serif' },
+        margin: { t: 40, r: 20, b: 50, l: 60 },
+        showlegend: true,
+        legend: { x: 0, y: 1 },
+        hovermode: 'x unified', // Better for time series
+        plot_bgcolor: '#ffffff',
+        paper_bgcolor: '#ffffff',
+        uirevision: 'time-series-layout',
+        shapes: [] // Will be used for hover
+    };
+
+    Plotly.react(dom.timeSeriesPlot, traces, layout, { responsive: true }).then(() => {
+        dom.timeSeriesPlot.on('plotly_hover', (data) => {
+            // Sync back to scatter logic could happen here
+            // Using hovermode x unified, we get all points at that X
+            // Let's just take the first one's time
+            const pt = data.points[0];
+            const t = new Date(pt.x).getTime();
+
+            // Highlight in Scatter
+            highlightScatter(t);
+        });
+    });
+}
+
+function highlightTime(timestamp) {
+    // timestamp is ms number
+    // Draw a vertical line on the time series plot
+    if (state.view.mode === 'scatter') return; // Not visible
+
+    const update = {
+        'shapes': [{
+            type: 'line',
+            x0: new Date(timestamp),
+            x1: new Date(timestamp),
+            y0: 0,
+            y1: 1,
+            yref: 'paper',
+            line: {
+                color: 'black',
+                width: 1,
+                dash: 'dash'
+            }
+        }]
+    };
+    Plotly.relayout(dom.timeSeriesPlot, update);
+}
+
+function highlightScatter(timestamp) {
+    if (state.view.mode === 'graph') return;
+
+    // We want to highlight the point(s) in the scatter plot that match this time.
+
+    const pts = [];
+    [state.raw, state.edited].forEach(ds => {
+        if (!ds.visible) return;
+        const match = ds.data.find(p => Math.abs(p.t.getTime() - timestamp) < 1000); // 1s tolerance
+        if (match) {
+            pts.push(match);
+        }
+    });
+
+    // Find Highlight Trace Index (should be the last one as per updateScatterPlot)
+    const highlightIdx = dom.scatterPlot.data.length - 1;
+
+    if (pts.length === 0) {
+        // Clear highlight
+        Plotly.restyle(dom.scatterPlot, { x: [[]], y: [[]] }, [highlightIdx]);
+        return;
+    }
+
+    // Update Highlight Trace
+    const xVal = pts.map(p => p.v);
+    const yVal = pts.map(p => p.l);
+
+    Plotly.restyle(dom.scatterPlot, {
+        x: [xVal],
+        y: [yVal]
+    }, [highlightIdx]);
+}
+
+function setViewMode(mode) {
+    state.view.mode = mode;
+    document.body.className = `view-mode-${mode}`;
+
+    dom.metricControl.style.display = mode === 'scatter' ? 'none' : 'flex';
+
+    // Resize trigger for Plotly
+    // We need a slight delay for flexbox to apply
+    requestAnimationFrame(() => {
+        if (dom.scatterPlot.offsetParent) Plotly.Plots.resize(dom.scatterPlot);
+        if (dom.timeSeriesPlot.offsetParent) Plotly.Plots.resize(dom.timeSeriesPlot);
+        // Force update to render data if it was hidden
+        updatePlots();
+    });
 }
 
 function resetView() {
     // Auto-scale to all data
     // Plotly handles this if we clear axis ranges or just relayout
-    Plotly.relayout(dom.plot, {
-        'xaxis.autorange': true,
-        'yaxis.autorange': true
-    });
+    if (state.view.mode !== 'graph') {
+        Plotly.relayout(dom.scatterPlot, {
+            'xaxis.autorange': true,
+            'yaxis.autorange': true
+        });
+    }
+    if (state.view.mode !== 'scatter') {
+        Plotly.relayout(dom.timeSeriesPlot, {
+            'xaxis.autorange': true,
+            'yaxis.autorange': true
+        });
+    }
 }
 
 // --- Helpers ---
@@ -916,7 +1186,15 @@ init();
 
 // --- Clipboard ---
 function copyGraphToClipboard() {
-    const plot = dom.plot;
+    // Determine which plot to copy
+    // If 'both', maybe copy the visible one or ask? 
+    // For now, let's copy the Scatter plot by default or the Graph if Scatter is hidden.
+    let plot = dom.scatterPlot;
+    if (state.view.mode === 'graph') plot = dom.timeSeriesPlot;
+    // If both, we prioritize scatter for now, or we could handle it better (html2canvas of wrapper?)
+    // But Plotly.toImage is component specific.
+
+    // Future improvement: Copy the wrapper div
 
     Plotly.toImage(plot, { format: 'png', height: 800, width: 1200 })
         .then(function (dataUrl) {
