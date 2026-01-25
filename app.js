@@ -1,28 +1,34 @@
-// TSF Scatter Plotter - Main Logic
-
-// --- Constants & State ---
-const EXCEL_BASE_DATE = new Date(1899, 11, 30); // Dec 30, 1899
+// Main Configuration
+const EXCEL_BASE_DATE = new Date(1899, 11, 30);
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 const state = {
     raw: { data: [], units: {}, name: null, visible: true },
     edited: { data: [], units: {}, name: null, visible: true },
+    confirmation: { data: [], units: {}, name: null, visible: true },
+    rainfall: { data: [], units: {}, name: null, visible: true },
     mannings: { data: [], visible: false, params: { diameter: null, slope: null, n: null } },
     events: [],
     currentRange: { start: null, end: null },
-    view: { mode: 'scatter', metric: 'level' } // metrics: level, velocity, flow
+    view: { mode: 'scatter', activeMetrics: ['level'] }
 };
 
-// --- DOM Elements ---
+// DOM Elements
 const dom = {
     fileRaw: document.getElementById('file-raw'),
     fileEdited: document.getElementById('file-edited'),
+    fileConfirm: document.getElementById('file-confirm'),
+    fileRainfall: document.getElementById('file-rainfall'),
     fileEvt: document.getElementById('file-evt'),
     lblRaw: document.getElementById('name-raw'),
     lblEdited: document.getElementById('name-edited'),
+    lblConfirm: document.getElementById('name-confirm'),
+    lblRainfall: document.getElementById('name-rainfall'),
     lblEvt: document.getElementById('name-evt'),
     chkRaw: document.getElementById('chk-raw'),
     chkEdited: document.getElementById('chk-edited'),
+    chkConfirm: document.getElementById('chk-confirm'),
+    chkRainfall: document.getElementById('chk-rainfall'),
     selectEvent: document.getElementById('select-event'),
     dtStart: document.getElementById('dt-start'),
     dtEnd: document.getElementById('dt-end'),
@@ -30,31 +36,41 @@ const dom = {
     plot: document.getElementById('plot-area'),
     menuSave: document.getElementById('menu-save'),
     fileLoadSession: document.getElementById('file-load-session'),
-    // Mannings
+
     inpDiameter: document.getElementById('inp-diameter'),
     inpSlope: document.getElementById('inp-slope'),
     inpMannings: document.getElementById('inp-mannings'),
     chkMannings: document.getElementById('chk-mannings'),
     btnUpdateCurve: document.getElementById('btn-update-curve'),
     manningsStatus: document.getElementById('mannings-status'),
-    // Session Label
+
     lblSession: document.getElementById('session-name'),
-    // View Controls
+
+    modalExcelControls: document.getElementById('modal-excel-controls'),
+    selSheet: document.getElementById('sel-sheet'),
+    inpHeaderRow: document.getElementById('inp-header-row'),
+
     radioViewScatter: document.getElementById('view-scatter'),
     radioViewGraph: document.getElementById('view-graph'),
     radioViewBoth: document.getElementById('view-both'),
-    selectMetric: document.getElementById('select-metric'),
     metricControl: document.getElementById('metric-control'),
-    // Plot Containers
+
+    cbLevel: document.getElementById('cb-metric-level'),
+    cbVelocity: document.getElementById('cb-metric-velocity'),
+    cbFlow: document.getElementById('cb-metric-flow'),
+    cbRainfall: document.getElementById('cb-metric-rainfall'),
+
     scatterPlot: document.getElementById('scatter-plot'),
     timeSeriesPlot: document.getElementById('timeseries-plot')
 };
 
-// --- Initialization ---
+// Initialize Application
 function init() {
-    // File Listeners
-    dom.fileRaw.addEventListener('change', (e) => loadTSF(e.target.files[0], 'raw'));
-    dom.fileEdited.addEventListener('change', (e) => loadTSF(e.target.files[0], 'edited'));
+    // Attach File Loaders
+    dom.fileRaw.addEventListener('change', (e) => loadTableFile(e.target.files[0], 'raw'));
+    dom.fileEdited.addEventListener('change', (e) => loadTableFile(e.target.files[0], 'edited'));
+    dom.fileConfirm.addEventListener('change', (e) => loadTableFile(e.target.files[0], 'confirmation'));
+    dom.fileRainfall.addEventListener('change', (e) => loadTableFile(e.target.files[0], 'rainfall'));
     dom.fileEvt.addEventListener('change', (e) => loadEVT(e.target.files[0]));
 
     // Toggle Listeners
@@ -64,6 +80,14 @@ function init() {
     });
     dom.chkEdited.addEventListener('change', (e) => {
         state.edited.visible = e.target.checked;
+        updatePlots();
+    });
+    dom.chkConfirm.addEventListener('change', (e) => {
+        state.confirmation.visible = e.target.checked;
+        updatePlots();
+    });
+    dom.chkRainfall.addEventListener('change', (e) => {
+        state.rainfall.visible = e.target.checked;
         updatePlots();
     });
 
@@ -97,10 +121,65 @@ function init() {
         r.addEventListener('change', handleViewChange);
     });
 
-    dom.selectMetric.addEventListener('change', (e) => {
-        state.view.metric = e.target.value;
+    const handleMetricChange = () => {
+        state.view.activeMetrics = [];
+        if (dom.cbLevel.checked) state.view.activeMetrics.push('level');
+        if (dom.cbVelocity.checked) state.view.activeMetrics.push('velocity');
+        if (dom.cbFlow.checked) state.view.activeMetrics.push('flow');
+        if (dom.cbRainfall.checked) state.view.activeMetrics.push('rainfall');
+
+        // Enforce Order
+        state.view.activeMetrics.sort((a, b) => {
+            const order = ['rainfall', 'flow', 'level', 'velocity'];
+            return order.indexOf(a) - order.indexOf(b);
+        });
+
         updatePlots();
+    };
+
+    dom.cbLevel.addEventListener('change', handleMetricChange);
+    dom.cbVelocity.addEventListener('change', handleMetricChange);
+    dom.cbFlow.addEventListener('change', handleMetricChange);
+    dom.cbRainfall.addEventListener('change', handleMetricChange);
+
+    // Plotly Event Listeners (Attach once)
+    dom.scatterPlot.on('plotly_hover', (data) => {
+        const pt = data.points[0];
+        if (pt.customdata && pt.customdata[1]) {
+            highlightTime(pt.customdata[1]);
+        }
     });
+    dom.scatterPlot.on('plotly_unhover', () => {
+        Plotly.relayout(dom.timeSeriesPlot, { 'shapes': [] });
+    });
+
+    dom.timeSeriesPlot.on('plotly_hover', (data) => {
+        const pt = data.points[0];
+        const t = new Date(pt.x).getTime();
+        highlightScatter(t);
+    });
+
+    // Help Modal Logic
+    const helpModal = document.getElementById('help-modal');
+    const btnHelp = document.getElementById('btn-help');
+    const btnCloseHelp = document.getElementById('btn-close-help');
+
+    if (btnHelp && helpModal && btnCloseHelp) {
+        btnHelp.addEventListener('click', () => {
+            helpModal.classList.remove('hidden');
+        });
+
+        btnCloseHelp.addEventListener('click', () => {
+            helpModal.classList.add('hidden');
+        });
+
+        // Close on click outside
+        helpModal.addEventListener('click', (e) => {
+            if (e.target === helpModal) {
+                helpModal.classList.add('hidden');
+            }
+        });
+    }
 
     // Ensure initial view is set correctly
     setViewMode('scatter');
@@ -108,63 +187,129 @@ function init() {
 
 // --- File Parsing ---
 
-function loadTSF(file, type) {
+// Helper for metric sort order
+const METRIC_ORDER = ['rainfall', 'flow', 'level', 'velocity'];
+function sortMetrics(metrics) {
+    return metrics.sort((a, b) => METRIC_ORDER.indexOf(a) - METRIC_ORDER.indexOf(b));
+}
+
+function loadTableFile(file, type) {
     if (!file) return;
 
+    const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
     const reader = new FileReader();
+
     reader.onload = (e) => {
         try {
-            const text = e.target.result;
-            // Use raw lines to respect fixed row indices (Row 0=Ignored, Row 1=Headers, Row 2=Units)
-            const rawLines = text.split(/\r?\n/);
-            if (rawLines.length < 3) throw new Error("File too short");
+            let source = {};
+            if (isExcel) {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                source = { type: 'excel', workbook: workbook };
+            } else {
+                source = { type: 'text', content: e.target.result };
+            }
 
-            const headerLine = rawLines[0]; // User requested 1st row for headers
-            const headers = headerLine.split('\t');
-
-            // Auto-detect columns
-            let timeIdx = -1, levelIdx = -1, velIdx = -1, flowIdx = -1;
-            headers.forEach((h, i) => {
-                if (!h) return;
-                const lower = h.toLowerCase();
-                if (lower.includes('date') || lower.includes('time')) timeIdx = i;
-                else if (lower.includes('level') || lower.includes('depth')) levelIdx = i;
-                else if (lower.includes('velocity')) velIdx = i;
-                else if (lower.includes('flow')) flowIdx = i;
-            });
-
-            // Extract potential units from 3rd row (index 2)
-            const potentialUnits = rawLines[2].split('\t');
-
-            // Preview Data: Rows 3+
-            // Filter empty lines for preview
-            const sampleData = rawLines.slice(3, 8).filter(l => l.trim().length > 0).map(line => line.split('\t'));
-
-            showColumnSelectionModal(file.name, headers, potentialUnits, sampleData, { timeIdx, levelIdx, velIdx, flowIdx }, (result) => {
+            showColumnSelectionModal(file.name, source, type, (result) => {
                 try {
-                    const parsed = parseTSFContent(text, result.indices, result.units);
+                    const parsed = parseTableContent(result.text, result.indices, result.units, result.delimiter);
+
                     state[type].data = parsed.data;
                     state[type].units = parsed.units;
                     state[type].name = file.name;
 
-                    // UI Update
                     if (type === 'raw') dom.lblRaw.textContent = file.name;
-                    else dom.lblEdited.textContent = file.name;
+                    else if (type === 'edited') dom.lblEdited.textContent = file.name;
+                    else if (type === 'confirmation') dom.lblConfirm.textContent = file.name;
+                    else if (type === 'rainfall') dom.lblRainfall.textContent = file.name;
 
                     initRanges();
                     updatePlots();
                     resetView();
                 } catch (err) {
-                    alert(`Error parsing file with selected columns: ${err.message}`);
+                    alert(`Error parsing file: ${err.message}`);
                 }
             });
 
         } catch (err) {
             alert(`Error reading ${file.name}: ${err.message}`);
-            console.error(err);
         }
     };
-    reader.readAsText(file);
+
+    if (isExcel) reader.readAsArrayBuffer(file);
+    else reader.readAsText(file);
+}
+
+function detectDelimiter(text) {
+    const lines = text.split(/\r?\n/).slice(0, 5);
+    let tabCount = 0;
+    let commaCount = 0;
+
+    lines.forEach(line => {
+        tabCount += (line.match(/\t/g) || []).length;
+        commaCount += (line.match(/,/g) || []).length;
+    });
+
+    return tabCount > commaCount ? '\t' : ',';
+}
+
+function parseTableContent(text, indices, explicitUnits, delimiter) {
+    const lines = text.split(/\r?\n/);
+    const { timeIdx, levelIdx, velIdx, flowIdx, rainfallIdx } = indices;
+
+    // Find header line
+    let headerLineIdx = -1;
+    for (let i = 0; i < Math.min(10, lines.length); i++) {
+        const line = lines[i].trim();
+        if (line && !line.startsWith('#') && line.split(delimiter).length > 1) {
+            headerLineIdx = i;
+            break;
+        }
+    }
+
+    if (headerLineIdx === -1) throw new Error("Could not find data headers");
+
+    const data = [];
+
+    for (let i = headerLineIdx + 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+
+        const parts = line.split(delimiter);
+        // Safety check
+        if (parts.length <= Math.max(timeIdx, levelIdx || 0, velIdx || 0)) continue;
+
+        const clean = (s) => s ? s.replace(/^"|"$/g, '').trim() : '';
+        const tStr = parts[timeIdx];
+        const t = new Date(clean(tStr));
+
+        if (isNaN(t.getTime())) continue;
+
+        let l = NaN, v = NaN, f = NaN, r = NaN;
+
+        if (levelIdx !== undefined && levelIdx !== -1) l = parseFloat(clean(parts[levelIdx]));
+        if (velIdx !== undefined && velIdx !== -1) v = parseFloat(clean(parts[velIdx]));
+        if (flowIdx !== undefined && flowIdx !== -1) f = parseFloat(clean(parts[flowIdx]));
+        if (rainfallIdx !== undefined && rainfallIdx !== -1) r = parseFloat(clean(parts[rainfallIdx]));
+
+        data.push({
+            t,
+            l: isNaN(l) ? null : l,
+            v: isNaN(v) ? null : v,
+            f: isNaN(f) ? null : f,
+            r: isNaN(r) ? null : r
+        });
+    }
+
+    return {
+        data,
+        units: {
+            level: explicitUnits.level,
+            velocity: explicitUnits.velocity,
+            flow: explicitUnits.flow,
+            rainfall: explicitUnits.rainfall
+        }
+    };
 }
 
 // Modal Elements
@@ -174,109 +319,199 @@ const selTime = document.getElementById('col-time');
 const selLevel = document.getElementById('col-level');
 const selVel = document.getElementById('col-velocity');
 const selFlow = document.getElementById('col-flow');
+const selRainfall = document.getElementById('col-rainfall');
+
 const unitLevel = document.getElementById('unit-level');
 const unitVel = document.getElementById('unit-velocity');
 const unitFlow = document.getElementById('unit-flow');
+const unitRainfall = document.getElementById('unit-rainfall');
 
 const previewTable = document.getElementById('preview-table');
 const btnConfirm = document.getElementById('btn-confirm-col');
 const btnCancel = document.getElementById('btn-cancel-col');
 
-let currentResolve = null;
-
-function showColumnSelectionModal(filename, headers, potentialUnits, sampleData, defaultIndices, onConfirm) {
+function showColumnSelectionModal(filename, source, type, onConfirm) {
     modalFileName.textContent = filename;
 
-    // Reset Selects
-    [selTime, selLevel, selVel, selFlow].forEach(sel => sel.innerHTML = '');
-    unitLevel.value = '';
-    unitVel.value = '';
-    unitFlow.value = '';
-
-    // Populate Selects
-    headers.forEach((h, i) => {
-        const createOpt = () => {
+    // Excel Controls
+    if (source.type === 'excel') {
+        dom.modalExcelControls.style.display = 'flex';
+        dom.selSheet.innerHTML = '';
+        source.workbook.SheetNames.forEach(name => {
             const opt = document.createElement('option');
-            opt.value = i;
-            opt.textContent = h || `Column ${i + 1}`;
-            return opt;
-        };
-        selTime.appendChild(createOpt());
-        selLevel.appendChild(createOpt());
-        selVel.appendChild(createOpt());
-        selFlow.appendChild(createOpt());
-    });
-
-    // Helper to update unit input based on selection
-    const updateUnit = (selectElem, inputElem) => {
-        const idx = parseInt(selectElem.value);
-        if (potentialUnits && potentialUnits[idx]) {
-            inputElem.value = potentialUnits[idx];
-        } else {
-            inputElem.value = '';
-        }
-    };
-
-    // Bind change events to update units
-    selLevel.onchange = () => updateUnit(selLevel, unitLevel);
-    selVel.onchange = () => updateUnit(selVel, unitVel);
-    selFlow.onchange = () => updateUnit(selFlow, unitFlow);
-
-    // Set Defaults if valid
-    if (defaultIndices.timeIdx !== -1) selTime.value = defaultIndices.timeIdx;
-
-    if (defaultIndices.levelIdx !== -1) {
-        selLevel.value = defaultIndices.levelIdx;
-        updateUnit(selLevel, unitLevel);
-    }
-
-    if (defaultIndices.velIdx !== -1) {
-        selVel.value = defaultIndices.velIdx;
-        updateUnit(selVel, unitVel);
-    }
-
-    if (defaultIndices.flowIdx !== -1) {
-        selFlow.value = defaultIndices.flowIdx;
-        updateUnit(selFlow, unitFlow);
-    }
-
-
-    // Render Preview
-    // Headers
-    let html = '<thead><tr>';
-    headers.forEach(h => html += `<th>${h}</th>`);
-    html += '</tr></thead><tbody>';
-
-    // Data
-    sampleData.forEach(row => {
-        html += '<tr>';
-        row.forEach((cell, i) => {
-            // Highlight selected columns? Maybe too complex for now.
-            html += `<td>${cell}</td>`;
+            opt.value = name;
+            opt.textContent = name;
+            dom.selSheet.appendChild(opt);
         });
-        html += '</tr>';
-    });
-    html += '</tbody>';
-    previewTable.innerHTML = html;
+        dom.selSheet.value = source.workbook.SheetNames[0];
+        dom.inpHeaderRow.value = 1;
 
-    // Show Modal
+        dom.selSheet.onchange = updatePreview;
+        dom.inpHeaderRow.onchange = updatePreview;
+    } else {
+        dom.modalExcelControls.style.display = 'none';
+        dom.selSheet.onchange = null;
+        dom.inpHeaderRow.onchange = null;
+    }
+
+    // Dynamic Visibility
+    const isRainfall = type === 'rainfall';
+    const isConfirmation = type === 'confirmation';
+
+    selLevel.parentElement.style.display = 'flex';
+    selVel.parentElement.style.display = 'flex';
+    selFlow.parentElement.style.display = 'flex';
+    selRainfall.parentElement.style.display = 'none';
+
+    if (isConfirmation) {
+        selFlow.parentElement.style.display = 'none';
+    } else if (isRainfall) {
+        selLevel.parentElement.style.display = 'none';
+        selVel.parentElement.style.display = 'none';
+        selFlow.parentElement.style.display = 'none';
+        selRainfall.parentElement.style.display = 'flex';
+    }
+
+    let currentPreviewData = null;
+
+    function updatePreview() {
+        try {
+            let text = "";
+            let delimiter = ",";
+
+            if (source.type === 'excel') {
+                const sheetName = dom.selSheet.value;
+                const worksheet = source.workbook.Sheets[sheetName];
+                text = XLSX.utils.sheet_to_csv(worksheet);
+
+                const headerRow = parseInt(dom.inpHeaderRow.value) || 1;
+                if (headerRow > 1) {
+                    const allLines = text.split(/\r?\n/);
+                    if (allLines.length >= headerRow) {
+                        text = allLines.slice(headerRow - 1).join('\n');
+                    }
+                }
+            } else {
+                text = source.content;
+                delimiter = detectDelimiter(text);
+            }
+
+            const rawLines = text.split(/\r?\n/);
+            if (rawLines.length < 1) return;
+
+            const headerLine = rawLines[0];
+            const headers = headerLine.split(delimiter);
+
+            // Auto-detect columns
+            let idxs = { timeIdx: -1, levelIdx: -1, velIdx: -1, flowIdx: -1, rainfallIdx: -1 };
+            headers.forEach((h, i) => {
+                if (!h) return;
+                const lower = h.toLowerCase();
+                if (lower.includes('date') || lower.includes('time')) idxs.timeIdx = i;
+                else if (lower.includes('level') || lower.includes('depth')) idxs.levelIdx = i;
+                else if (lower.includes('velocity')) idxs.velIdx = i;
+                else if (lower.includes('flow')) idxs.flowIdx = i;
+                else if (lower.includes('rain') || lower.includes('precip')) idxs.rainfallIdx = i;
+            });
+
+            // Extract units from row 2
+            let potentialUnits = [];
+            if (rawLines.length > 2) {
+                const parts = rawLines[2].split(delimiter);
+                if (Math.abs(parts.length - headers.length) <= 2) potentialUnits = parts;
+            }
+
+            // Populate Selects
+            [selTime, selLevel, selVel, selFlow, selRainfall].forEach(sel => sel.innerHTML = '');
+            headers.forEach((h, i) => {
+                const createOpt = () => {
+                    const opt = document.createElement('option');
+                    opt.value = i;
+                    opt.textContent = h || `Column ${i + 1}`;
+                    return opt;
+                };
+                selTime.appendChild(createOpt());
+                selLevel.appendChild(createOpt());
+                selVel.appendChild(createOpt());
+                selFlow.appendChild(createOpt());
+                selRainfall.appendChild(createOpt());
+            });
+
+            const updateUnit = (selectElem, inputElem) => {
+                const idx = parseInt(selectElem.value);
+                if (potentialUnits && potentialUnits[idx]) {
+                    inputElem.value = potentialUnits[idx];
+                } else {
+                    inputElem.value = '';
+                }
+            };
+
+            selLevel.onchange = () => updateUnit(selLevel, unitLevel);
+            selVel.onchange = () => updateUnit(selVel, unitVel);
+            selFlow.onchange = () => updateUnit(selFlow, unitFlow);
+            selRainfall.onchange = () => updateUnit(selRainfall, unitRainfall);
+
+            if (idxs.timeIdx !== -1) selTime.value = idxs.timeIdx;
+            if (idxs.levelIdx !== -1) selLevel.value = idxs.levelIdx;
+            if (idxs.velIdx !== -1) selVel.value = idxs.velIdx;
+            if (idxs.flowIdx !== -1) {
+                selFlow.value = idxs.flowIdx;
+                updateUnit(selFlow, unitFlow);
+            }
+            if (idxs.rainfallIdx !== -1) {
+                selRainfall.value = idxs.rainfallIdx;
+                updateUnit(selRainfall, unitRainfall);
+            }
+
+            if (idxs.levelIdx !== -1) updateUnit(selLevel, unitLevel);
+            if (idxs.velIdx !== -1) updateUnit(selVel, unitVel);
+
+            // Render Preview
+            const sampleData = rawLines.slice(1, 6).filter(l => l.trim().length > 0).map(l => l.split(delimiter));
+            let html = '<thead><tr>';
+            headers.forEach(h => html += `<th>${h}</th>`);
+            html += '</tr></thead><tbody>';
+            sampleData.forEach(row => {
+                html += '<tr>';
+                row.forEach(cell => html += `<td>${cell}</td>`);
+                html += '</tr>';
+            });
+            html += '</tbody>';
+            previewTable.innerHTML = html;
+
+            currentPreviewData = { text, delimiter };
+            return currentPreviewData;
+
+        } catch (e) {
+            console.error("Preview Error", e);
+        }
+    }
+
+    updatePreview();
+
     modal.classList.remove('hidden');
 
-    // Handlers
     const handleConfirm = () => {
+        if (!currentPreviewData) updatePreview();
+
         modal.classList.add('hidden');
         cleanup();
+
         onConfirm({
+            text: currentPreviewData.text,
+            delimiter: currentPreviewData.delimiter,
             indices: {
                 timeIdx: parseInt(selTime.value),
-                levelIdx: parseInt(selLevel.value),
-                velIdx: parseInt(selVel.value),
-                flowIdx: parseInt(selFlow.value)
+                levelIdx: isRainfall ? -1 : parseInt(selLevel.value),
+                velIdx: isRainfall ? -1 : parseInt(selVel.value),
+                flowIdx: isRainfall ? -1 : parseInt(selFlow.value),
+                rainfallIdx: isRainfall ? parseInt(selRainfall.value) : -1
             },
             units: {
                 level: unitLevel.value,
                 velocity: unitVel.value,
-                flow: unitFlow.value
+                flow: unitFlow.value,
+                rainfall: unitRainfall.value
             }
         });
     };
@@ -284,81 +519,17 @@ function showColumnSelectionModal(filename, headers, potentialUnits, sampleData,
     const handleCancel = () => {
         modal.classList.add('hidden');
         cleanup();
-        // Reset file input?
-        // Actually we don't need to do anything, just don't load.
     };
 
     const cleanup = () => {
         btnConfirm.removeEventListener('click', handleConfirm);
         btnCancel.removeEventListener('click', handleCancel);
-        selLevel.onchange = null;
-        selVel.onchange = null;
-        selFlow.onchange = null;
-        currentResolve = null;
+        dom.selSheet.onchange = null; // Clean up SheetJS listeners
+        dom.inpHeaderRow.onchange = null;
     };
 
     btnConfirm.addEventListener('click', handleConfirm);
     btnCancel.addEventListener('click', handleCancel);
-}
-
-function parseTSFContent(text, indices, explicitUnits) {
-    const lines = text.split(/\r?\n/);
-    // Logic similar to original but using provided indices
-
-    // Re-scanning to be safe with line numbers
-    // Assuming standard TSF:
-    // Line 1 (index 1 if 0-based split? Original code said Row 1 Headers)
-    // Let's stick to the robust loop we had, but use specific indices.
-
-    // Find header line again to establish unit line relative to it
-    let headerLineIdx = -1;
-    for (let i = 0; i < Math.min(10, lines.length); i++) {
-        const line = lines[i].trim();
-        if (line && !line.startsWith('#') && line.split('\t').length > 1) {
-            headerLineIdx = i;
-            break;
-        }
-    }
-
-    if (headerLineIdx === -1) throw new Error("Could not find data headers");
-
-    // Units are typically the next line, but we trust explicitUnits now
-    // const unitLine = lines[headerLineIdx + 1];
-    // const units = unitLine ? unitLine.split('\t') : [];
-
-    const { timeIdx, levelIdx, velIdx, flowIdx } = indices;
-
-    const data = [];
-
-    // Parse Data starting after units
-    for (let i = headerLineIdx + 2; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line) continue;
-
-        const parts = line.split('\t');
-        const tStr = parts[timeIdx];
-        const lStr = parts[levelIdx];
-        const vStr = parts[velIdx];
-        const fStr = parts[flowIdx];
-
-        const t = new Date(tStr);
-        const l = parseFloat(lStr);
-        const v = parseFloat(vStr);
-        const f = parseFloat(fStr); // May be NaN if flow not mapped
-
-        if (!isNaN(t.getTime()) && !isNaN(l) && !isNaN(v)) {
-            data.push({ t, l, v, f: isNaN(f) ? null : f });
-        }
-    }
-
-    return {
-        data,
-        units: {
-            level: explicitUnits.level,
-            velocity: explicitUnits.velocity,
-            flow: explicitUnits.flow
-        }
-    };
 }
 
 function loadEVT(file) {
@@ -544,7 +715,7 @@ function initRanges() {
     let minT = null;
     let maxT = null;
 
-    [state.raw.data, state.edited.data].forEach(arr => {
+    [state.raw.data, state.edited.data, state.confirmation.data, state.rainfall.data].forEach(arr => {
         if (arr.length > 0) {
             const t0 = arr[0].t;
             const t1 = arr[arr.length - 1].t;
@@ -603,6 +774,8 @@ async function saveSession(e) {
         state: {
             raw: state.raw,
             edited: state.edited,
+            confirmation: state.confirmation,
+            rainfall: state.rainfall, // Save Rainfall
             mannings: state.mannings, // Save Mannings
             events: state.events
         },
@@ -676,6 +849,8 @@ function loadSession(e) {
                 // Must convert date strings back to objects
                 state.raw = restoreData(session.state.raw);
                 state.edited = restoreData(session.state.edited);
+                state.confirmation = restoreData(session.state.confirmation);
+                state.rainfall = restoreData(session.state.rainfall);
 
                 // Restore events
                 state.events = (session.state.events || []).map(ev => ({
@@ -704,10 +879,14 @@ function loadSession(e) {
             // Restore UI Labels
             dom.lblRaw.textContent = state.raw.name || "Loaded from Session";
             dom.lblEdited.textContent = state.edited.name || "Loaded from Session";
+            dom.lblConfirm.textContent = state.confirmation.name || "Loaded from Session";
+            dom.lblRainfall.textContent = state.rainfall.name || "Loaded from Session";
             dom.lblEvt.textContent = state.events.length > 0 ? "Loaded from Session" : "No file selected";
 
             dom.chkRaw.checked = state.raw.visible;
             dom.chkEdited.checked = state.edited.visible;
+            dom.chkConfirm.checked = state.confirmation.visible;
+            dom.chkRainfall.checked = state.rainfall.visible;
 
             populateEventDropdown();
 
@@ -722,12 +901,18 @@ function loadSession(e) {
             if (session.state.view) {
                 // Ensure defaults if missing (backward compat)
                 state.view.mode = session.state.view.mode || 'scatter';
-                state.view.metric = session.state.view.metric || 'level';
+                // state.view.metric = session.state.view.metric || 'level'; // Legacy
+                state.view.activeMetrics = session.state.view.activeMetrics || ['level'];
 
                 // Update UI Controls
                 const rad = document.querySelector(`input[name="view-mode"][value="${state.view.mode}"]`);
                 if (rad) rad.checked = true;
-                dom.selectMetric.value = state.view.metric;
+
+                // Update Checkboxes
+                dom.cbLevel.checked = state.view.activeMetrics.includes('level');
+                dom.cbVelocity.checked = state.view.activeMetrics.includes('velocity');
+                dom.cbFlow.checked = state.view.activeMetrics.includes('flow');
+                dom.cbRainfall.checked = state.view.activeMetrics.includes('rainfall');
 
                 setViewMode(state.view.mode);
             }
@@ -801,8 +986,9 @@ function updateScatterPlot() {
     const end = range.end.getTime();
 
     const datasets = [
-        { type: 'raw', data: state.raw.data, color: 'red', show: state.raw.visible },
-        { type: 'edited', data: state.edited.data, color: 'blue', show: state.edited.visible }
+        { type: 'raw', data: state.raw.data, color: 'red', show: state.raw.visible, symbol: 'circle' },
+        { type: 'edited', data: state.edited.data, color: 'blue', show: state.edited.visible, symbol: 'circle' },
+        { type: 'confirmation', data: state.confirmation.data, color: '#10b981', show: state.confirmation.visible, symbol: 'diamond' }
     ];
 
     const traces = [];
@@ -849,10 +1035,11 @@ function updateScatterPlot() {
                 y: fgY,
                 mode: 'markers',
                 type: 'scattergl', // Use WebGL for performance
-                name: ds.type === 'raw' ? 'Raw (In Range)' : 'Edited (In Range)',
+                name: ds.type === 'raw' ? 'Raw (In Range)' : (ds.type === 'confirmation' ? 'Confirmation' : 'Edited (In Range)'),
                 marker: {
+                    symbol: ds.symbol || 'circle',
                     color: ds.color,
-                    size: 6,
+                    size: ds.type === 'confirmation' ? 12 : 6, // Slightly larger for diamonds
                     opacity: 0.8,
                     line: { color: 'black', width: 1 } // Added outline
                 },
@@ -910,6 +1097,43 @@ function updateScatterPlot() {
         });
     }
 
+    // Add Pipe Crown Line
+    if (state.mannings.visible && state.mannings.params.diameter) {
+        const D = state.mannings.params.diameter;
+        // Check units
+        const isInches = dUnit.toLowerCase().startsWith('in');
+        const depthMult = isInches ? 12.0 : 1.0;
+        const crownY = D * depthMult;
+
+        // Find max velocity for line length
+        let maxV = 5.0; // Default min width
+        if (state.mannings.data.length > 0) {
+            const mMax = Math.max(...state.mannings.data.map(p => p.v));
+            if (mMax > maxV) maxV = mMax;
+        }
+        // Also check observed data to ensure line covers points
+        datasets.forEach(ds => {
+            if (ds.data.length > 0) {
+                const localMax = Math.max(...ds.data.map(p => p.v || 0));
+                if (localMax > maxV) maxV = localMax;
+            }
+        });
+
+        traces.push({
+            x: [0, maxV * 1.1], // Extend slightly
+            y: [crownY, crownY],
+            mode: 'lines',
+            type: 'scattergl',
+            name: 'Pipe Crown',
+            line: {
+                color: 'black',
+                width: 1,
+                dash: 'dash'
+            },
+            hoverinfo: 'name+y'
+        });
+    }
+
     // Add Highlight Trace (Empty initially)
     traces.push({
         x: [],
@@ -921,7 +1145,7 @@ function updateScatterPlot() {
         marker: {
             symbol: 'circle-open',
             size: 15,
-            color: '#000000',
+            color: '#00FFFF', // Cyan
             line: { width: 3 }
         },
         hoverinfo: 'skip'
@@ -969,21 +1193,7 @@ function updateScatterPlot() {
         uirevision: 'true', // Keep zoom/pan state when updating data
     };
 
-    Plotly.react(dom.scatterPlot, traces, layout, { responsive: true }).then(() => {
-        // Attach hover events
-        dom.scatterPlot.on('plotly_hover', (data) => {
-            const pt = data.points[0];
-            // If it's a data point (has customdata with time)
-            if (pt.customdata && pt.customdata[1]) {
-                highlightTime(pt.customdata[1]);
-            }
-        });
-        dom.scatterPlot.on('plotly_unhover', () => {
-            // Clear highlight? Maybe not needed if we want persistence, but for now let's leave it.
-            // Actually, clearing the highlight on graph might be nice.
-            Plotly.relayout(dom.timeSeriesPlot, { 'shapes': [] });
-        });
-    });
+    Plotly.react(dom.scatterPlot, traces, layout, { responsive: true });
 }
 
 function updateTimeSeriesPlot() {
@@ -993,90 +1203,150 @@ function updateTimeSeriesPlot() {
     const range = getRange();
     if (!range.start || !range.end) return;
 
-    const metric = state.view.metric; // level, velocity, flow
+    const activeMetrics = state.view.activeMetrics || [];
+    if (activeMetrics.length === 0) return; // Or clear plot?
 
-    const datasets = [
+    const activeDatasets = [
         { type: 'raw', data: state.raw.data, color: 'red', show: state.raw.visible },
-        { type: 'edited', data: state.edited.data, color: 'blue', show: state.edited.visible }
+        { type: 'edited', data: state.edited.data, color: 'blue', show: state.edited.visible },
+        { type: 'confirmation', data: state.confirmation.data, color: '#10b981', show: state.confirmation.visible, symbol: 'diamond' },
+        { type: 'rainfall', data: state.rainfall.data, color: '#3b82f6', show: state.rainfall.visible }
     ];
 
     const traces = [];
 
-    // Helper to get val
-    const getVal = (pt) => {
-        if (metric === 'level') return pt.l;
-        if (metric === 'velocity') return pt.v;
-        if (metric === 'flow') return pt.f;
-        return null;
-    };
-
-    datasets.forEach(ds => {
-        if (!ds.show || ds.data.length === 0) return;
-
-        const x = [];
-        const y = [];
-        const custom = [];
-
-        ds.data.forEach(pt => {
-            const val = getVal(pt);
-            if (val !== null && val !== undefined) {
-                x.push(pt.t);
-                y.push(val);
-                custom.push([formatDateTime(pt.t), pt.v, pt.l]); // [Str, Vel, Dep]
-            }
-        });
-
-        traces.push({
-            x: x,
-            y: y,
-            mode: 'lines', // Lines for time series
-            type: 'scattergl',
-            name: ds.type === 'raw' ? 'Raw' : 'Edited',
-            line: { color: ds.color, width: 2 },
-            customdata: custom,
-            hovertemplate:
-                `<b>%{x}</b><br>` +
-                `${metric.charAt(0).toUpperCase() + metric.slice(1)}: %{y:.2f}<br>` +
-                '<extra></extra>'
-        });
-    });
-
-    let yTitle = 'Value';
-    if (metric === 'level') yTitle = `Depth (${state.raw.units.level || ''})`;
-    else if (metric === 'velocity') yTitle = `Velocity (${state.raw.units.velocity || ''})`;
-    else if (metric === 'flow') yTitle = `Flow (${state.raw.units.flow || ''})`;
+    // Layout Calculation
+    // We want to stack 'N' plots vertically.
+    // Total height = 1.0. 
+    // Gap = 0.05 (maybe less for many plots)
+    const nMetrics = activeMetrics.length;
+    const gap = 0.05;
+    const plotHeight = (1.0 - (gap * (nMetrics - 1))) / nMetrics;
 
     const layout = {
-        title: `Time Series - ${metric.charAt(0).toUpperCase() + metric.slice(1)}`,
+        title: 'Time Series',
         xaxis: {
-            title: 'Time',
-            range: [range.start, range.end], // Sync zoom with main range
-            type: 'date'
+            title: '', // Only bottom axis needs title? Or none to save space.
+            range: [range.start, range.end],
+            type: 'date',
+            domain: [0, 1],
+            anchor: `y${nMetrics > 1 ? nMetrics : ''}` // anchor to bottom-most y-axis? No, usually 'y' is bottom?
+            // Actually, in Plotly stacking, usually y is bottom, y2 is above, etc. Or y is top.
+            // Let's explicitly define domains.
         },
-        yaxis: { title: yTitle },
+        // grid: { rows: nMetrics, columns: 1, pattern: 'independent' }, // Removing grid to allow manual domain control
         font: { family: 'Inter, sans-serif' },
-        margin: { t: 40, r: 20, b: 50, l: 60 },
+        margin: { t: 50, r: 20, b: 50, l: 60 },
         showlegend: true,
-        legend: { x: 0, y: 1 },
-        hovermode: 'x unified', // Better for time series
+        hovermode: 'x unified',
         plot_bgcolor: '#ffffff',
         paper_bgcolor: '#ffffff',
         uirevision: 'time-series-layout',
-        shapes: [] // Will be used for hover
+        shapes: [] // Preserve highlight lines? logic is in highlightTime
     };
 
-    Plotly.react(dom.timeSeriesPlot, traces, layout, { responsive: true }).then(() => {
-        dom.timeSeriesPlot.on('plotly_hover', (data) => {
-            // Sync back to scatter logic could happen here
-            // Using hovermode x unified, we get all points at that X
-            // Let's just take the first one's time
-            const pt = data.points[0];
-            const t = new Date(pt.x).getTime();
+    // Construct Traces and Layout Axis
+    const seenLegendGroups = new Set();
 
-            // Highlight in Scatter
-            highlightScatter(t);
+    // Construct Traces and Layout Axis
+    activeMetrics.forEach((metric, idx) => {
+        // Plotly axis naming for TRACES: y, y2, y3...
+        // Plotly axis naming for LAYOUT: yaxis, yaxis2, yaxis3...
+
+        const traceAxis = idx === 0 ? 'y' : `y${idx + 1}`;
+        const layoutKey = idx === 0 ? 'yaxis' : `yaxis${idx + 1}`;
+
+        // Calculate Domain (Top to Bottom)
+        const top = 1 - (idx * (plotHeight + gap));
+        const bottom = top - plotHeight;
+
+        // Lookup Unit
+        let unit = '';
+        if (metric === 'rainfall') {
+            unit = state.rainfall.units.rainfall || '';
+        } else {
+            // Try logical sources
+            unit = state.raw.units[metric] || state.edited.units[metric] || state.confirmation.units[metric] || '?';
+        }
+        const unitStr = unit ? ` (${unit})` : '';
+
+        // Update Layout with Axis Config
+        layout[layoutKey] = {
+            title: (metric.charAt(0).toUpperCase() + metric.slice(1)) + unitStr,
+            domain: [bottom, top],
+            // anchor: 'x' // Link all to same x axis
+        };
+
+        // Add Traces for this metric
+        activeDatasets.forEach(ds => {
+            if (!ds.show || ds.data.length === 0) return;
+
+            const isRainDataset = ds.type === 'rainfall';
+            const isRainMetric = metric === 'rainfall';
+
+            if (isRainDataset && !isRainMetric) return;
+            if (!isRainDataset && isRainMetric) return;
+            if (ds.type === 'confirmation' && metric === 'flow') return;
+
+            const x = [], y = [], custom = [];
+            ds.data.forEach(pt => {
+                let val = null;
+                if (metric === 'level') val = pt.l;
+                else if (metric === 'velocity') val = pt.v;
+                else if (metric === 'flow') val = pt.f;
+                else if (metric === 'rainfall') val = pt.r;
+
+                if (val !== null && val !== undefined) {
+                    x.push(pt.t);
+                    y.push(val);
+                    custom.push([formatDateTime(pt.t), pt.v || 0, pt.l || 0]); // Metadata
+                }
+            });
+
+            if (x.length === 0) return;
+
+            const isConfirm = ds.type === 'confirmation';
+            const groupName = ds.type; // raw, edited, confirmation, rainfall
+            const displayName = ds.type === 'raw' ? 'Raw' :
+                ds.type === 'confirmation' ? 'Confirmation' :
+                    ds.type === 'rainfall' ? 'Rainfall' : 'Edited';
+
+            // Determine if we show the legend for this group (only first time)
+            const showLegend = !seenLegendGroups.has(groupName);
+            if (showLegend) seenLegendGroups.add(groupName);
+
+            const trace = {
+                x: x, y: y,
+                mode: isConfirm ? 'markers' : 'lines',
+                type: 'scattergl',
+                name: displayName,
+                xaxis: 'x',
+                yaxis: traceAxis,
+                customdata: custom,
+                hovertemplate: `<b>%{x}</b><br>${metric}: %{y:.2f}<br><extra></extra>`,
+                showlegend: showLegend,
+                legendgroup: groupName
+            };
+
+            if (isConfirm) {
+                trace.marker = { symbol: 'diamond', color: ds.color, size: 12, opacity: 0.8, line: { color: 'black', width: 1 } };
+            } else {
+                trace.line = { color: ds.color, width: 2 };
+            }
+
+            traces.push(trace);
         });
     });
+
+    // Handle X-Axis Anchor (attach to bottom-most y-axis usually, or just overlay)
+    // In independent pattern, they share 'x' if we set xaxis: 'x' for all.
+    // We just need to ensure X axis is visible.
+    // layout.xaxis.anchor = `y${nMetrics}`; // Anchor to bottom one?
+    // Actually, Plotly defaults are okay if we share 'xaxis'.
+
+    // Update Plot
+    Plotly.react(dom.timeSeriesPlot, traces, layout, { responsive: true });
+    // Note: Event listeners moved to init()
 }
 
 function highlightTime(timestamp) {
@@ -1185,16 +1455,19 @@ function formatDateTime(date) {
 init();
 
 // --- Clipboard ---
+
 function copyGraphToClipboard() {
     // Determine which plot to copy
-    // If 'both', maybe copy the visible one or ask? 
-    // For now, let's copy the Scatter plot by default or the Graph if Scatter is hidden.
+    // If 'both', copy what's visible? Or prioritize Scatter?
     let plot = dom.scatterPlot;
     if (state.view.mode === 'graph') plot = dom.timeSeriesPlot;
-    // If both, we prioritize scatter for now, or we could handle it better (html2canvas of wrapper?)
-    // But Plotly.toImage is component specific.
+    // For 'both', maybe we should let user choose? 
+    // Defaults to Scatter if scatter is visible (scatter, both)
+    // Actually, if both, user might want Graph.
+    // Let's assume if Graph is FULL view, copy Graph. Else Scatter.
 
-    // Future improvement: Copy the wrapper div
+    // Quick fix: copy whatever is dominant or just scatter.
+    // User requested "Copy Graph" button on visual.
 
     Plotly.toImage(plot, { format: 'png', height: 800, width: 1200 })
         .then(function (dataUrl) {
@@ -1231,6 +1504,11 @@ function copyGraphToClipboard() {
         });
 }
 
-// Attach listener (dirty hack to reach into dom elements not yet in 'dom' const if I don't update it)
-// Better to update init() or add it here safely
+// Attach listener
 document.getElementById('btn-copy-graph').addEventListener('click', copyGraphToClipboard);
+
+
+
+// ... existing loadTableFileV2 ...
+
+

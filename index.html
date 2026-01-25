@@ -15,6 +15,9 @@
     <!-- Plotly -->
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 
+    <!-- SheetJS -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+
     <!-- Custom Styles -->
     <link rel="stylesheet" href="style.css">
 </head>
@@ -36,6 +39,15 @@
             <div class="app-title">
                 <h1>Scatter Plot Reviewer</h1>
                 <img src="ScatterPlotReviewAppIcon.ico" alt="App Icon" class="app-logo">
+                <!-- Help Button -->
+                <button id="btn-help" class="menu-btn" title="Help & Usage" style="margin-left: 0.5rem;">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+                        <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                    </svg>
+                </button>
             </div>
         </header>
 
@@ -43,7 +55,7 @@
             <!-- Sidebar Controls -->
             <aside class="sidebar">
                 <div id="session-info" class="session-label"
-                    style="margin-bottom: 1rem; color: var(--accent-color); font-weight: 600; font-size: 0.85rem;">
+                    style="color: var(--accent-color); font-weight: 600; font-size: 0.85rem;">
                     Session: <span id="session-name"
                         style="color: var(--text-primary); font-weight: 400;">Unsaved</span>
                 </div>
@@ -51,11 +63,12 @@
                     <div class="group-header">
                         <h2>Files</h2>
                     </div>
-
                     <!-- Raw TSF -->
                     <div class="file-group">
-                        <label class="input-label" for="file-raw">Raw TSF <span class="indicator raw">●</span></label>
-                        <input type="file" id="file-raw" accept=".tsf" class="file-control">
+                        <label class="input-label" for="file-raw">Raw Data <span class="indicator raw"></span></label>
+                        <input type="file" id="file-raw"
+                            accept=".tsf,.csv,.txt,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                            class="file-control">
                         <div class="toggle-row">
                             <span class="file-status" id="name-raw">No file selected</span>
                             <div class="toggle-wrapper">
@@ -67,9 +80,11 @@
 
                     <!-- Edited TSF -->
                     <div class="file-group">
-                        <label class="input-label" for="file-edited">Edited TSF <span
-                                class="indicator edited">●</span></label>
-                        <input type="file" id="file-edited" accept=".tsf" class="file-control">
+                        <label class="input-label" for="file-edited">Edited Data <span
+                                class="indicator edited"></span></label>
+                        <input type="file" id="file-edited"
+                            accept=".tsf,.csv,.txt,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                            class="file-control">
                         <div class="toggle-row">
                             <span class="file-status" id="name-edited">No file selected</span>
                             <div class="toggle-wrapper">
@@ -87,11 +102,43 @@
                             <span class="file-status" id="name-evt">No file selected</span>
                         </div>
                     </div>
+
+                    <!-- Confirmation Measurements -->
+                    <div class="file-group">
+                        <label class="input-label" for="file-confirm">Confirmation Measurements <span
+                                class="indicator confirm"></span></label>
+                        <input type="file" id="file-confirm"
+                            accept=".csv,.txt,.tsf,.dat,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                            class="file-control">
+                        <div class="toggle-row">
+                            <span class="file-status" id="name-confirm">No file selected</span>
+                            <div class="toggle-wrapper">
+                                <input type="checkbox" id="chk-confirm" checked>
+                                <label for="chk-confirm">Show</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Rainfall TSF -->
+                    <div class="file-group">
+                        <label class="input-label" for="file-rainfall">Rainfall <span
+                                class="indicator rainfall"></span></label>
+                        <input type="file" id="file-rainfall"
+                            accept=".tsf,.csv,.txt,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                            class="file-control">
+                        <div class="toggle-row">
+                            <span class="file-status" id="name-rainfall">No file selected</span>
+                            <div class="toggle-wrapper">
+                                <input type="checkbox" id="chk-rainfall" checked>
+                                <label for="chk-rainfall">Show</label>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="control-group">
                     <div class="group-header">
-                        <h2>Manning's Curve</h2>
+                        <h2>Manning's Theoretical</h2>
                         <h2>(Circular Only)</h2>
                     </div>
                     <div class="file-group">
@@ -165,19 +212,34 @@
                             </div>
                         </div>
                     </div>
-                    <div class="control-group-inline" id="metric-control" style="display: none;">
-                        <label for="select-metric">Graph Metric:</label>
-                        <select id="select-metric">
-                            <option value="level">Level</option>
-                            <option value="velocity">Velocity</option>
-                            <option value="flow">Flow</option>
-                        </select>
+                    <div class="control-group-inline" id="metric-control"
+                        style="display: none; align-items: center; gap: 1rem;">
+                        <span style="font-weight: 500; font-size: 0.9rem;">Metrics:</span>
+                        <div class="checkbox-group" style="display: flex; gap: 0.75rem;">
+                            <div class="cb-item">
+                                <input type="checkbox" id="cb-metric-rainfall" value="rainfall">
+                                <label for="cb-metric-rainfall">Rainfall</label>
+                            </div>
+                            <div class="cb-item">
+                                <input type="checkbox" id="cb-metric-flow" value="flow">
+                                <label for="cb-metric-flow">Flow</label>
+                            </div>
+                            <div class="cb-item">
+                                <input type="checkbox" id="cb-metric-level" value="level" checked>
+                                <label for="cb-metric-level">Level</label>
+                            </div>
+                            <div class="cb-item">
+                                <input type="checkbox" id="cb-metric-velocity" value="velocity">
+                                <label for="cb-metric-velocity">Velocity</label>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
                 <div class="plot-container-wrapper">
                     <div id="scatter-plot" class="plot-item"></div>
                     <div id="timeseries-plot" class="plot-item"></div>
+
                 </div>
 
                 <div class="action-bar" style="display: flex; justify-content: flex-end; margin-top: 0.5rem;">
@@ -199,6 +261,19 @@
                 <div class="modal-header">
                     <h2>Select Columns</h2>
                     <p id="modal-file-name" class="modal-subtitle">filename.tsf</p>
+                    <div id="modal-excel-controls"
+                        style="display: none; margin-top: 0.75rem; gap: 1rem; align-items: center;">
+                        <div class="control-group-inline">
+                            <label for="sel-sheet" style="font-size: 0.8rem; color: #475569;">Sheet:</label>
+                            <select id="sel-sheet"
+                                style="padding: 0.25rem; border: 1px solid #cbd5e1; border-radius: 4px;"></select>
+                        </div>
+                        <div class="control-group-inline">
+                            <label for="inp-header-row" style="font-size: 0.8rem; color: #475569;">Header Row:</label>
+                            <input type="number" id="inp-header-row" value="1" min="1"
+                                style="width: 60px; padding: 0.25rem; border: 1px solid #cbd5e1; border-radius: 4px;">
+                        </div>
+                    </div>
                 </div>
 
                 <div class="modal-body">
@@ -225,6 +300,11 @@
                             <select id="col-flow"></select>
                             <input type="text" id="unit-flow" placeholder="Unit" class="unit-input">
                         </div>
+                        <div class="selector-group">
+                            <label for="col-rainfall">Rainfall</label>
+                            <select id="col-rainfall"></select>
+                            <input type="text" id="unit-rainfall" placeholder="Unit" class="unit-input">
+                        </div>
                     </div>
 
                     <div class="data-preview">
@@ -240,6 +320,132 @@
                 <div class="modal-footer">
                     <button id="btn-cancel-col" class="btn-secondary">Cancel</button>
                     <button id="btn-confirm-col" class="btn-primary">Confirm</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Help Modal -->
+        <div id="help-modal" class="modal-overlay hidden">
+            <div class="modal-content" style="max-width: 800px;">
+                <div class="modal-header">
+                    <h2>How to Use Scatter Plot Reviewer</h2>
+                    <p class="modal-subtitle">A quick guide to metrics, files, and views.</p>
+                </div>
+                <div class="modal-body">
+
+                    <section style="margin-bottom: 2rem;">
+                        <h3
+                            style="color: #334155; margin-bottom: 0.5rem; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.25rem;">
+                            1. Getting Started</h3>
+                        <ol
+                            style="padding-left: 1.5rem; color: #475569; font-size: 0.95rem; line-height: 1.6; margin-top: 0.5rem;">
+                            <li><strong>Import Data:</strong> Load your hydraulic data files (TSF, CSV, Excel) into the
+                                appropriate slots in the sidebar.</li>
+                            <li><strong>Map Columns:</strong> If prompted, map your file columns to the standard metrics
+                                (Time, Level, Velocity, Flow, Rainfall).</li>
+                            <li><strong>Visualize:</strong> The data will automatically plot. Toggle files on/off or
+                                change the view mode to explore.</li>
+                        </ol>
+                    </section>
+
+                    <section style="margin-bottom: 2rem;">
+                        <h3
+                            style="color: #334155; margin-bottom: 0.5rem; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.25rem;">
+                            2. Importing Data</h3>
+                        <p style="color: #475569; font-size: 0.95rem; line-height: 1.5; margin-bottom: 1rem;">
+                            The app provides designated slots for comparing different datasets:
+                        </p>
+                        <ul style="padding-left: 1.5rem; color: #475569; font-size: 0.95rem; line-height: 1.6;">
+                            <li><strong>Raw Data:</strong> The original, unedited dataset.</li>
+                            <li><strong>Edited Data:</strong> The processed or corrected dataset.</li>
+                            <li><strong>Confirmation:</strong> manual field measurements or validation points.</li>
+                            <li><strong>Rainfall:</strong> Precipitation data for correlation analysis.</li>
+                            <li><strong>Events (.evt):</strong> Time ranges to quickly zoom into specific storm events.
+                            </li>
+                        </ul>
+                    </section>
+
+                    <section style="margin-bottom: 2rem;">
+                        <h3
+                            style="color: #334155; margin-bottom: 0.5rem; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.25rem;">
+                            3. Metrics & Analytics</h3>
+                        <p style="color: #475569; font-size: 0.95rem; line-height: 1.5; margin-bottom: 1rem;">
+                            Analyze the relationships between key hydraulic parameters:
+                        </p>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                            <div>
+                                <strong style="color: #334155;">Level / Depth</strong>
+                                <p style="font-size: 0.9rem; color: #64748b; margin: 0.25rem 0;">Vertical height of the
+                                    flow in the conduit.</p>
+                            </div>
+                            <div>
+                                <strong style="color: #334155;">Velocity</strong>
+                                <p style="font-size: 0.9rem; color: #64748b; margin: 0.25rem 0;">Speed of the flow
+                                    moving through the conduit.</p>
+                            </div>
+                            <div>
+                                <strong style="color: #334155;">Flow Rate</strong>
+                                <p style="font-size: 0.9rem; color: #64748b; margin: 0.25rem 0;">Volumetric quantity of
+                                    flow passing a point.</p>
+                            </div>
+                            <div>
+                                <strong style="color: #334155;">Rainfall</strong>
+                                <p style="font-size: 0.9rem; color: #64748b; margin: 0.25rem 0;">Precipitation intensity
+                                    or volume.</p>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section style="margin-bottom: 2rem;">
+                        <h3
+                            style="color: #334155; margin-bottom: 0.5rem; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.25rem;">
+                            4. Visualization Modes</h3>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-top: 1rem;">
+                            <div
+                                style="background: #f8fafc; padding: 1rem; border-radius: 8px; border: 1px solid #e2e8f0;">
+                                <strong style="color: #334155;">Scatter Plot</strong>
+                                <p style="font-size: 0.85rem; color: #64748b; margin-top: 0.5rem;">
+                                    plots <strong>Depth vs. Velocity</strong>. Crucial for understanding system
+                                    hydraulics and data quality.
+                                </p>
+                            </div>
+                            <div
+                                style="background: #f8fafc; padding: 1rem; border-radius: 8px; border: 1px solid #e2e8f0;">
+                                <strong style="color: #334155;">Time Series</strong>
+                                <p style="font-size: 0.85rem; color: #64748b; margin-top: 0.5rem;">
+                                    Show time series of data over the monitoring period.
+                                </p>
+                            </div>
+                            <div
+                                style="background: #f8fafc; padding: 1rem; border-radius: 8px; border: 1px solid #e2e8f0;">
+                                <strong style="color: #334155;">Split View</strong>
+                                <p style="font-size: 0.85rem; color: #64748b; margin-top: 0.5rem;">
+                                    Displays both views simultaneously. Hovering on one highlights the corresponding
+                                    data in the other.
+                                </p>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section>
+                        <h3
+                            style="color: #334155; margin-bottom: 0.5rem; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.25rem;">
+                            5. Tools & Tips</h3>
+                        <ul
+                            style="padding-left: 1.5rem; color: #475569; font-size: 0.95rem; line-height: 1.6; margin-top: 0.5rem;">
+                            <li><strong>Manning's Curve:</strong> Generate a theoretical flow curve for circular pipes
+                                by entering Diameter, Slope, and N value.</li>
+                            <li><strong>Pipe Crown:</strong> A reference line showing the full pipe depth will appear on
+                                the scatter plot when a diameter is set.</li>
+                            <li><strong>Interactive Legends:</strong> Click on legend items (e.g., "Raw", "Rainfall") to
+                                toggle entire dataset groups.</li>
+                            <li><strong>Zooming:</strong> Click and drag on any plot to zoom in. Double-click to reset
+                                the view.</li>
+                        </ul>
+                    </section>
+                </div>
+                <div class="modal-footer">
+                    <button id="btn-close-help" class="btn-primary">Close</button>
                 </div>
             </div>
         </div>

@@ -107,6 +107,16 @@ body {
     background: rgba(255, 255, 255, 0.1);
 }
 
+/* Specific help button style if needed, but generic menu-btn works well */
+#btn-help {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.4rem;
+    margin-left: auto;
+    /* Push to right if inside flex container */
+}
+
 /* Dropdown */
 .dropdown {
     position: relative;
@@ -206,6 +216,10 @@ body {
 
 .indicator.edited {
     color: blue;
+}
+
+.indicator.confirm {
+    color: #10b981;
 }
 
 .file-control {
