@@ -158,6 +158,11 @@ function init() {
         const t = new Date(pt.x).getTime();
         highlightScatter(t);
     });
+    dom.timeSeriesPlot.on('plotly_unhover', () => {
+        // Clear scatter highlight
+        const highlightIdx = dom.scatterPlot.data.length - 1;
+        Plotly.restyle(dom.scatterPlot, { x: [[]], y: [[]] }, [highlightIdx]);
+    });
 
     // Help Modal Logic
     const helpModal = document.getElementById('help-modal');
@@ -1465,51 +1470,101 @@ init();
 // --- Clipboard ---
 
 function copyGraphToClipboard() {
-    // Determine which plot to copy
-    // If 'both', copy what's visible? Or prioritize Scatter?
-    let plot = dom.scatterPlot;
-    if (state.view.mode === 'graph') plot = dom.timeSeriesPlot;
-    // For 'both', maybe we should let user choose? 
-    // Defaults to Scatter if scatter is visible (scatter, both)
-    // Actually, if both, user might want Graph.
-    // Let's assume if Graph is FULL view, copy Graph. Else Scatter.
+    const mode = state.view.mode;
+    const btn = document.getElementById('btn-copy-graph');
 
-    // Quick fix: copy whatever is dominant or just scatter.
-    // User requested "Copy Graph" button on visual.
+    // Helper to flash success/fail
+    const flashBtn = (success) => {
+        const originalHTML = btn.innerHTML;
+        const color = success ? '#10b981' : '#ef4444';
+        const icon = success ?
+            `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>` :
+            `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`; // Error icon
 
-    Plotly.toImage(plot, { format: 'png', height: 800, width: 1200 })
-        .then(function (dataUrl) {
-            // Convert Base64 to Blob
-            fetch(dataUrl)
-                .then(res => res.blob())
-                .then(blob => {
-                    // Write to clipboard
-                    const item = new ClipboardItem({ "image/png": blob });
-                    navigator.clipboard.write([item]).then(() => {
-                        // Feedback
-                        const btn = document.getElementById('btn-copy-graph');
-                        const originalHTML = btn.innerHTML;
+        btn.innerHTML = icon;
+        btn.style.color = color;
+        btn.style.borderColor = color;
 
-                        // Check mark
-                        btn.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
-                        btn.style.color = '#10b981'; // Green
-                        btn.style.borderColor = '#10b981';
+        setTimeout(() => {
+            btn.innerHTML = originalHTML;
+            btn.style.color = '';
+            btn.style.borderColor = '';
+        }, 2000);
+    };
 
-                        setTimeout(() => {
-                            btn.innerHTML = originalHTML;
-                            btn.style.color = '';
-                            btn.style.borderColor = '';
-                        }, 2000);
-                    }).catch(err => {
-                        console.error("Clipboard write failed", err);
-                        alert("Failed to copy to clipboard. Browser may deny permission.");
-                    });
-                });
-        })
-        .catch(function (err) {
-            console.error("Plotly export failed", err);
-            alert("Failed to generate image.");
+    const writeBlob = (blob) => {
+        const item = new ClipboardItem({ "image/png": blob });
+        navigator.clipboard.write([item])
+            .then(() => flashBtn(true))
+            .catch(err => {
+                console.error("Clipboard write failed", err);
+                alert("Failed to copy to clipboard.");
+                flashBtn(false);
+            });
+    };
+
+    if (mode === 'both') {
+        // Split View: Capture both and merge
+        // We defined ratio 3:2. Let's adhere to that roughly or just capture reasonable sizes.
+        // Total Width: 1500px? (900 TS, 600 Scatter)
+        const wTS = 900;
+        const wSc = 600;
+        const h = 600;
+
+        Promise.all([
+            Plotly.toImage(dom.timeSeriesPlot, { format: 'png', height: h, width: wTS }),
+            Plotly.toImage(dom.scatterPlot, { format: 'png', height: h, width: wSc })
+        ]).then(dataUrls => {
+            const imgTS = new Image();
+            const imgSc = new Image();
+
+            let loaded = 0;
+            const onLoaded = () => {
+                loaded++;
+                if (loaded === 2) {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = wTS + wSc;
+                    canvas.height = h;
+                    const ctx = canvas.getContext('2d');
+
+                    // Fill white background
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                    // Draw images
+                    ctx.drawImage(imgTS, 0, 0);
+                    ctx.drawImage(imgSc, wTS, 0);
+
+                    canvas.toBlob(writeBlob, 'image/png');
+                }
+            };
+
+            imgTS.onload = onLoaded;
+            imgSc.onload = onLoaded;
+
+            imgTS.src = dataUrls[0];
+            imgSc.src = dataUrls[1];
+        }).catch(err => {
+            console.error(err);
+            flashBtn(false);
         });
+
+    } else {
+        // Single View
+        let plot = dom.scatterPlot;
+        if (mode === 'graph') plot = dom.timeSeriesPlot;
+
+        Plotly.toImage(plot, { format: 'png', height: 800, width: 1200 })
+            .then(dataUrl => {
+                fetch(dataUrl)
+                    .then(res => res.blob())
+                    .then(writeBlob);
+            })
+            .catch(err => {
+                console.error(err);
+                flashBtn(false);
+            });
+    }
 }
 
 // Attach listener
