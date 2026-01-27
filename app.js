@@ -10,7 +10,7 @@ const state = {
     mannings: { data: [], visible: false, params: { diameter: null, slope: null, n: null } },
     events: [],
     currentRange: { start: null, end: null },
-    view: { mode: 'scatter', activeMetrics: ['level'] }
+    view: { mode: 'scatter', activeMetrics: ['level', 'velocity'] }
 };
 
 // DOM Elements
@@ -1238,6 +1238,14 @@ function updateTimeSeriesPlot() {
         font: { family: 'Inter, sans-serif' },
         margin: { t: 50, r: 20, b: 50, l: 60 },
         showlegend: true,
+        legend: {
+            x: 0.01,
+            y: 0.99,
+            xanchor: 'left',
+            yanchor: 'top',
+            bgcolor: 'rgba(255, 255, 255, 0.5)',
+            font: { size: 10 }
+        },
         hovermode: 'x unified',
         plot_bgcolor: '#ffffff',
         paper_bgcolor: '#ffffff',
