@@ -14,27 +14,6 @@ A web-based tool for visualizing and reviewing hydraulic modeling data, specific
 - **Session Management**: Save (`.sct`) and resume your analysis sessions seamlessly.
 - **Export Tools**: One-click "Copy to Clipboard" button for quick reporting.
 
-## Getting Started
-
-### Hosted Application
-Access the tool directly via your web browser: https://meyerd851-lab.github.io/ScatterPlotReviewer/
-
-### Local Development
-1. **Clone the repository**:
-   ```bash
-   git clone <repository-url>
-   ```
-2. **Run Locally**:
-   - You can open `index.html` directly in a browser, or
-   - Use a local server (recommended):
-     ```bash
-     python -m http.server 8000
-     ```
-     Then navigate to `http://localhost:8000`.
-
-3. **Load Data**:
-   - Upload a **Raw TSF** and/or **Edited TSF** file using the file inputs in the sidebar.
-
 ## Usage Guide
 
 ### Navigating Data
@@ -60,4 +39,5 @@ Expects a text file defining events, typically in an INI-like structure with `[E
 
 ---
 *Built with HTML, CSS, Vanilla JavaScript, and Plotly.js.*
+
 
