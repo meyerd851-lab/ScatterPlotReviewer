@@ -10,7 +10,13 @@ const state = {
     mannings: { data: [], visible: false, params: { diameter: null, slope: null, n: null } },
     events: [],
     currentRange: { start: null, end: null },
-    view: { mode: 'scatter', activeMetrics: ['level', 'velocity'] }
+    view: { mode: 'scatter', activeMetrics: ['level', 'velocity'] },
+    bounds: {
+        level: { min: null, max: null },
+        velocity: { min: null, max: null },
+        flow: { min: null, max: null },
+        rainfall: { min: null, max: null }
+    }
 };
 
 // DOM Elements
@@ -61,7 +67,18 @@ const dom = {
     cbRainfall: document.getElementById('cb-metric-rainfall'),
 
     scatterPlot: document.getElementById('scatter-plot'),
-    timeSeriesPlot: document.getElementById('timeseries-plot')
+    timeSeriesPlot: document.getElementById('timeseries-plot'),
+
+    // Y-Axis Bounds
+    minLevel: document.getElementById('min-level'),
+    maxLevel: document.getElementById('max-level'),
+    minVelocity: document.getElementById('min-velocity'),
+    maxVelocity: document.getElementById('max-velocity'),
+    minFlow: document.getElementById('min-flow'),
+    maxFlow: document.getElementById('max-flow'),
+    minRainfall: document.getElementById('min-rainfall'),
+    maxRainfall: document.getElementById('max-rainfall'),
+    btnClearBounds: document.getElementById('btn-clear-bounds')
 };
 
 // Initialize Application
@@ -141,6 +158,36 @@ function init() {
     dom.cbVelocity.addEventListener('change', handleMetricChange);
     dom.cbFlow.addEventListener('change', handleMetricChange);
     dom.cbRainfall.addEventListener('change', handleMetricChange);
+
+    // Bounds Listeners
+    const bindBound = (elem, metric, type) => {
+        elem.addEventListener('change', (e) => {
+            const val = parseFloat(e.target.value);
+            state.bounds[metric][type] = isNaN(val) ? null : val;
+            updatePlots();
+        });
+    };
+
+    bindBound(dom.minLevel, 'level', 'min');
+    bindBound(dom.maxLevel, 'level', 'max');
+    bindBound(dom.minVelocity, 'velocity', 'min');
+    bindBound(dom.maxVelocity, 'velocity', 'max');
+    bindBound(dom.minFlow, 'flow', 'min');
+    bindBound(dom.maxFlow, 'flow', 'max');
+    bindBound(dom.minRainfall, 'rainfall', 'min');
+    bindBound(dom.maxRainfall, 'rainfall', 'max');
+
+    dom.btnClearBounds.addEventListener('click', () => {
+        ['level', 'velocity', 'flow', 'rainfall'].forEach(m => {
+            state.bounds[m].min = null;
+            state.bounds[m].max = null;
+        });
+        dom.minLevel.value = ''; dom.maxLevel.value = '';
+        dom.minVelocity.value = ''; dom.maxVelocity.value = '';
+        dom.minFlow.value = ''; dom.maxFlow.value = '';
+        dom.minRainfall.value = ''; dom.maxRainfall.value = '';
+        updatePlots();
+    });
 
     // Plotly Event Listeners (Attach once)
     dom.scatterPlot.on('plotly_hover', (data) => {
@@ -1261,11 +1308,7 @@ function updateTimeSeriesPlot() {
     // Construct Traces and Layout Axis
     const seenLegendGroups = new Set();
 
-    // Construct Traces and Layout Axis
     activeMetrics.forEach((metric, idx) => {
-        // Plotly axis naming for TRACES: y, y2, y3...
-        // Plotly axis naming for LAYOUT: yaxis, yaxis2, yaxis3...
-
         const traceAxis = idx === 0 ? 'y' : `y${idx + 1}`;
         const layoutKey = idx === 0 ? 'yaxis' : `yaxis${idx + 1}`;
 
@@ -1283,20 +1326,95 @@ function updateTimeSeriesPlot() {
         }
         const unitStr = unit ? ` (${unit})` : '';
 
+        // Calculate Data Min/Max for this metric
+        let dataMin = Infinity;
+        let dataMax = -Infinity;
+        let hasData = false;
+
+        activeDatasets.forEach(ds => {
+            if (!ds.show || ds.data.length === 0) return;
+            const isRainDataset = ds.type === 'rainfall';
+            const isRainMetric = metric === 'rainfall';
+            if (isRainDataset && !isRainMetric) return;
+            if (!isRainDataset && isRainMetric) return;
+            if (ds.type === 'confirmation' && metric === 'flow') return;
+
+            ds.data.forEach(pt => {
+                let val = null;
+                if (metric === 'level') val = pt.l;
+                else if (metric === 'velocity') val = pt.v;
+                else if (metric === 'flow') val = pt.f;
+                else if (metric === 'rainfall') val = pt.r;
+
+                if (val !== null && val !== undefined && !isNaN(val)) {
+                    // Check time range? No, we want scale based on visible? 
+                    // Plotly zooms X, so Y scale usually should fit visible X range
+                    // OR fit ALL data? 
+                    // Usually "Autoscale" in Plotly fits visible data.
+                    // But here we are pre-calculating. 
+                    // Let's filter by time range to be consistent with Plotly "auto" behavior on zoom.
+                    const t = pt.t.getTime();
+                    if (t >= range.start.getTime() && t <= range.end.getTime()) {
+                        if (val < dataMin) dataMin = val;
+                        if (val > dataMax) dataMax = val;
+                        hasData = true;
+                    }
+                }
+            });
+        });
+
+        // Determine Range
+        let yRange = null; // Default to auto
+        const bounds = state.bounds[metric];
+
+        if (hasData) {
+            // If user set Both
+            if (bounds.min !== null && bounds.max !== null) {
+                yRange = [bounds.min, bounds.max];
+            }
+            // If user set Min only
+            else if (bounds.min !== null) {
+                let dMax = dataMax;
+                if (dMax === -Infinity) dMax = bounds.min + 1;
+                // Add padding to max
+                const span = dMax - bounds.min;
+                const pad = span === 0 ? 1 : span * 0.05;
+                yRange = [bounds.min, dMax + pad];
+            }
+            // If user set Max only
+            else if (bounds.max !== null) {
+                let dMin = dataMin;
+                if (dMin === Infinity) dMin = bounds.max - 1;
+                // Add padding to min
+                const span = bounds.max - dMin;
+                const pad = span === 0 ? 1 : span * 0.05;
+                yRange = [dMin - pad, bounds.max];
+            }
+            // If neither, fallback to null (auto)
+        } else {
+            // No data visible, but maybe user set bounds?
+            if (bounds.min !== null && bounds.max !== null) {
+                yRange = [bounds.min, bounds.max];
+            }
+        }
+
         // Update Layout with Axis Config
         layout[layoutKey] = {
             title: (metric.charAt(0).toUpperCase() + metric.slice(1)) + unitStr,
             domain: [bottom, top],
-            // anchor: 'x' // Link all to same x axis
         };
+
+        if (yRange) {
+            layout[layoutKey].range = yRange;
+        } else {
+            layout[layoutKey].autorange = true;
+        }
 
         // Add Traces for this metric
         activeDatasets.forEach(ds => {
             if (!ds.show || ds.data.length === 0) return;
-
             const isRainDataset = ds.type === 'rainfall';
             const isRainMetric = metric === 'rainfall';
-
             if (isRainDataset && !isRainMetric) return;
             if (!isRainDataset && isRainMetric) return;
             if (ds.type === 'confirmation' && metric === 'flow') return;
@@ -1312,19 +1430,18 @@ function updateTimeSeriesPlot() {
                 if (val !== null && val !== undefined) {
                     x.push(pt.t);
                     y.push(val);
-                    custom.push([formatDateTime(pt.t), pt.v || 0, pt.l || 0]); // Metadata
+                    custom.push([formatDateTime(pt.t), pt.v || 0, pt.l || 0]);
                 }
             });
 
             if (x.length === 0) return;
 
             const isConfirm = ds.type === 'confirmation';
-            const groupName = ds.type; // raw, edited, confirmation, rainfall
+            const groupName = ds.type;
             const displayName = ds.type === 'raw' ? 'Raw' :
                 ds.type === 'confirmation' ? 'Confirmation' :
                     ds.type === 'rainfall' ? 'Rainfall' : 'Edited';
 
-            // Determine if we show the legend for this group (only first time)
             const showLegend = !seenLegendGroups.has(groupName);
             if (showLegend) seenLegendGroups.add(groupName);
 
@@ -1333,7 +1450,7 @@ function updateTimeSeriesPlot() {
                 mode: isConfirm ? 'markers' : 'lines',
                 type: 'scattergl',
                 name: displayName,
-                xaxis: 'x',
+                xaxis: 'x', // Always link to x (bottom) or we need matched axes
                 yaxis: traceAxis,
                 customdata: custom,
                 hovertemplate: `<b>%{x}</b><br>${metric}: %{y:.2f}<br><extra></extra>`,

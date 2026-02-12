@@ -166,6 +166,49 @@
                     </div>
                 </div>
 
+                <!-- Y-Axis Bounds -->
+                <div class="control-group">
+                    <div class="group-header">
+                        <h2>Y-Axis Bounds</h2>
+                    </div>
+                    <div class="file-group">
+                        <!-- Level -->
+                        <div class="input-row">
+                            <label>Level / Depth</label>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <input type="number" id="min-level" placeholder="Min" step="any" style="width: 50%;">
+                                <input type="number" id="max-level" placeholder="Max" step="any" style="width: 50%;">
+                            </div>
+                        </div>
+                        <!-- Velocity -->
+                        <div class="input-row" style="margin-top: 5px;">
+                            <label>Velocity</label>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <input type="number" id="min-velocity" placeholder="Min" step="any" style="width: 50%;">
+                                <input type="number" id="max-velocity" placeholder="Max" step="any" style="width: 50%;">
+                            </div>
+                        </div>
+                        <!-- Flow -->
+                        <div class="input-row" style="margin-top: 5px;">
+                            <label>Flow</label>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <input type="number" id="min-flow" placeholder="Min" step="any" style="width: 50%;">
+                                <input type="number" id="max-flow" placeholder="Max" step="any" style="width: 50%;">
+                            </div>
+                        </div>
+                        <!-- Rainfall -->
+                        <div class="input-row" style="margin-top: 5px;">
+                            <label>Rainfall</label>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <input type="number" id="min-rainfall" placeholder="Min" step="any" style="width: 50%;">
+                                <input type="number" id="max-rainfall" placeholder="Max" step="any" style="width: 50%;">
+                            </div>
+                        </div>
+                        <button id="btn-clear-bounds" class="btn-primary"
+                            style="margin-top: 10px; width: 100%; background-color: #64748b;">Clear Bounds</button>
+                    </div>
+                </div>
+
                 <div class="control-group">
                     <div class="group-header">
                         <h2>Filters & View</h2>
