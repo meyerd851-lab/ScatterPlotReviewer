@@ -39,6 +39,7 @@ const dom = {
     dtStart: document.getElementById('dt-start'),
     dtEnd: document.getElementById('dt-end'),
     btnReset: document.getElementById('btn-reset'),
+    btnResetFilters: document.getElementById('btn-reset-filters'),
     plot: document.getElementById('plot-area'),
     menuSave: document.getElementById('menu-save'),
     fileLoadSession: document.getElementById('file-load-session'),
@@ -113,6 +114,7 @@ function init() {
     dom.dtStart.addEventListener('change', onDateChange);
     dom.dtEnd.addEventListener('change', onDateChange);
     dom.btnReset.addEventListener('click', resetView);
+    dom.btnResetFilters.addEventListener('click', resetFilters);
 
     // Session Listeners
     dom.menuSave.addEventListener('click', saveSession);
@@ -1566,6 +1568,12 @@ function resetView() {
             'yaxis.autorange': true
         });
     }
+}
+
+function resetFilters() {
+    dom.selectEvent.value = -1;
+    initRanges();
+    updatePlots();
 }
 
 // --- Helpers ---
